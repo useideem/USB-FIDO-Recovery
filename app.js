@@ -200,11 +200,134 @@ const STATE = new State({
 // Action labels for protected actions
 // ---------------------------------------------------------------------------
 const PROTECTED_ACTION_LABELS = {
-  'make-payment': 'Make Payment',
-  'transfer-money': 'Transfer Money',
-  'change-setting': 'Change Setting',
+  'authenticate': 'Authenticate',
+  'p2p-contact-exchange': 'P2P Contact Exchange',
+  'view-point-standings': 'View Point Standings',
   'add-beneficiary': 'Add Beneficiary'
 };
+
+// ---------------------------------------------------------------------------
+// User database -- the account behind the User ID
+//
+// The Ideem user API (docs/user-api.md) holds one record per attendee, keyed
+// by the bare-digit phone number that is also the credential on the key. The
+// two money actions above debit that record through its balance endpoint
+// once the step-up has succeeded. The other two actions only step up.
+//
+// The API is reached through the site's own /db proxy (dev-server.mjs
+// locally, api/db.js on Vercel) because it sends no CORS headers.
+// ---------------------------------------------------------------------------
+const DB_BASE = './db';
+
+/**
+ * What each money action costs. The booth form never asks for an amount, so
+ * the demo charges a fixed one per action. Actions missing from this table
+ * step up and stop; they touch no balance.
+ */
+const ACTION_AMOUNTS = {
+  'authenticate': 25,
+  'p2p-contact-exchange': 100
+};
+
+const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+
+/** The record for the logged-in user, or null when none is on file. */
+let account = null;
+/** Which User ID `account` was loaded for, so a stale record is never reused. */
+let accountFor = null;
+
+/**
+ * Looks the logged-in user up by phone number. The API matches the stored
+ * string exactly and answers an array, so this sends bare digits and takes
+ * the first match. A User ID that is not phone-shaped has no record to find.
+ *
+ * @returns {Promise<{userId: number, balance: number}|null>}
+ */
+async function findAccount(user) {
+  const digits = phoneDigits(user);
+  if (!digits) return null;
+  const res = await fetch(`${DB_BASE}/users/phone/${encodeURIComponent(digits)}`, { cache: 'no-store' });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`lookup returned ${res.status}`);
+  const body = await res.json();
+  const record = Array.isArray(body) ? body[0] ?? null : body;
+  return record ? { userId: record.userId, balance: Number(record.balance) } : null;
+}
+
+/**
+ * Re-reads the account from the database and redraws the balance line. A
+ * database that is down or has no record leaves the demo usable: the actions
+ * still step up, they just have nothing to charge.
+ */
+async function refreshAccount(user) {
+  accountFor = user;
+  try {
+    account = await findAccount(user);
+  } catch (err) {
+    console.warn('[account] lookup failed:', err.message);
+    account = null;
+  }
+  renderBalance();
+}
+
+function renderBalance() {
+  const line = document.getElementById('balance-display');
+  const value = document.getElementById('balance-value');
+  if (!line || !value) return;
+  line.hidden = !account;
+  value.textContent = account ? money.format(account.balance) : '--';
+}
+
+/**
+ * Moves the balance by `amount` through PATCH /users/:id/balance. The API
+ * ADDS the amount it is sent (a charge is a negative number), rounds to
+ * cents, and will take the balance below zero without complaint, so the
+ * overdraft check lives in the caller, not here. It is also not idempotent:
+ * a timed-out request may have applied, so the caller must never retry.
+ *
+ * @returns {Promise<number>} The balance the server now holds.
+ */
+async function adjustBalance(userId, amount) {
+  const res = await fetch(`${DB_BASE}/users/${encodeURIComponent(userId)}/balance`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount })
+  });
+  if (!res.ok) throw new Error(`balance update returned ${res.status}`);
+  const body = await res.json();
+  return Number(body.user?.balance ?? body.balance);
+}
+
+/**
+ * Charges a money action to the logged-in user's account after the step-up
+ * has been authorized. The balance is re-read first so the overdraft check
+ * is against what the server holds now, not what this page last saw.
+ *
+ * @returns {Promise<{state: string, message: string}>} What to flash.
+ */
+async function settleAction(user, actionLabel, amount) {
+  await refreshAccount(user);
+  if (!account) {
+    return { state: 'success', message: `${actionLabel} Authorized (no account on file)` };
+  }
+  if (account.balance < amount) {
+    return {
+      state: 'failure',
+      message: `${actionLabel} Declined: ${money.format(amount)} exceeds balance of ${money.format(account.balance)}`
+    };
+  }
+  try {
+    account.balance = await adjustBalance(account.userId, -amount);
+    renderBalance();
+    return { state: 'success', message: `${actionLabel} Authorized: ${money.format(amount)} charged` };
+  } catch (err) {
+    // The charge may or may not have landed. Re-read rather than retry, so a
+    // slow server never charges twice.
+    console.error('[account] charge failed:', err.message);
+    await refreshAccount(user);
+    return { state: 'failure', message: `${actionLabel} Authorized, but the charge did not go through` };
+  }
+}
 
 // ---------------------------------------------------------------------------
 // showScreen — simple screen switcher
@@ -319,6 +442,8 @@ async function updateUI() {
   const isNewUser = newToggleEl.checked;
   if (STATE.loginID) {
     showScreen('ACTIONS');
+    // Load the account once per login; the money actions re-read it themselves.
+    if (accountFor !== STATE.loginID) await refreshAccount(STATE.loginID);
   } else if (isNewUser) {
     showScreen('SETUP');
   } else {
@@ -577,13 +702,24 @@ async function handleProtectedAction(actionKey) {
 
   if (!authResult.success) {
     showFlash('action-status', `${actionLabel} Failed`, 'failure', 2000);
-  } else {
-    showFlash('action-status', `${actionLabel} Authorized`, 'success', 2000);
-    if (authResult.challengeData) {
-      updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
-    }
-    updateAuthIcons({ zsm: true, passkeys: usePasskeys });
+    return;
   }
+
+  if (authResult.challengeData) {
+    updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
+  }
+  updateAuthIcons({ zsm: true, passkeys: usePasskeys });
+
+  // The step-up is what the action protects; a money action then settles
+  // against the user database. The other actions are done at this point.
+  const amount = ACTION_AMOUNTS[actionKey];
+  if (amount === undefined) {
+    showFlash('action-status', `${actionLabel} Authorized`, 'success', 2000);
+    return;
+  }
+  showFlash('action-status', `${actionLabel} Authorized, charging ${money.format(amount)}...`, 'success', 10000);
+  const outcome = await settleAction(STATE.loginID, actionLabel, amount);
+  showFlash('action-status', outcome.message, outcome.state, 4000);
 }
 
 // ---------------------------------------------------------------------------
@@ -592,6 +728,9 @@ async function handleProtectedAction(actionKey) {
 async function logOut() {
   resetClient();
   STATE.reset();
+  account = null;
+  accountFor = null;
+  renderBalance();
   updateChallengeDisplay('--', '--');
   updateAuthIcons();
   await updateUI();

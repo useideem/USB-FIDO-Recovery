@@ -5,9 +5,11 @@ The demo's user records live in an Express service at
 enrollment page writes to it; the retrieval side reads from it, keyed by the
 phone number the iShield Key hands back.
 
-Everything below was measured against the live service on 2026-09-22, not read
-off the Postman collection, which carries no saved responses and no bodies for
-its PUT requests.
+Everything below was measured against the live service (2026-09-22, 2026-10-02
+and 2026-10-09) unless a line says otherwise. The Postman collection the API's
+owner shared is beside this file as `IdeemAPI.postman_collection.json`; it is
+the list of the 15 routes, but it carries no saved responses and no bodies for
+its PUT requests, so it says what exists, not how it behaves.
 
 ---
 
@@ -28,6 +30,13 @@ its PUT requests.
 `userId` is assigned by the server; a create body leaves it out. `photo` has
 been null in every record so far, so its format is still unknown.
 
+A read **by confirmation number** (§3b) returns three more fields: `Company`
+(capital C), `email` and `confNumber`. So do the bodies that POST, PUT, PATCH
+and DELETE echo back. The list, by-id and by-phone reads return only the seven
+above, so the shape of "a user" depends on which route handed it to you. None
+of the three can be set through the API: every write route accepts them in a
+body and stores nothing (§3b).
+
 ## 2. Endpoints
 
 | Method | Path | Answers with |
@@ -40,6 +49,10 @@ been null in every record so far, so its format is still unknown.
 | PUT | `/users/:id`, `/users/phone/:phone` | 200 and the updated record |
 | DELETE | `/users/:id`, `/users/phone/:phone` | `{"message":"User deleted","user":{…}}` |
 | PATCH | `/users/:id/balance`, `/users/phone/:phone/balance` | `{"message":"Balance updated","user":{…}}` -- see §3a |
+| GET | `/users/conf/:confNumber` | a single **object**, with `confNumber`, `Company` and `email` added -- see §3b |
+| PUT | `/users/conf/:confNumber` | updates a record that already has that number; **404** otherwise -- an update, not a create, see §3b |
+| DELETE | `/users/conf/:confNumber` | 404 when no record has that number; the success shape was not observed -- see §3b |
+| PATCH | `/users/conf/:confNumber/balance` | `{"message":"Balance updated","user":{…}}`, the same additive `{"amount": …}` body as §3a -- see §3b |
 
 A missing record gives `404 {"error":"User not found"}`. An unknown route
 gives Express's HTML error page, not JSON.
@@ -100,6 +113,77 @@ phone route, and with duplicate phone numbers possible (§3) it is not clear
 which record a by-phone PATCH adjusts. Prefer the by-id form once the user has
 been looked up.
 
+## 3b. Confirmation-number routes
+
+Added by the API's owner in early October 2026 for attendees who opt in and
+present a badge: the badge's confirmation number becomes a second key for the
+record, beside the phone number. Four routes, all under `/users/conf/`.
+
+**Measured on 2026-10-09.** Reads against the owner's test user; writes
+against throwaway records created and deleted in the same run (`userId` 196
+and 197, both gone), plus a net-zero balance adjustment on the test user,
+which the owner's email gave as the example for that route.
+
+| Request | Result |
+|---|---|
+| `GET /users/conf/KVNLHY66K2P` | 200, a single **object** (not an array, unlike by-phone) |
+| `GET /users/conf/kvnlhy66k2p` | 200, the **same record** -- the lookup is **case-insensitive**, unlike the exact-string phone routes |
+| `GET /users/conf/ZZZNOTREAL000` | 404 `{"error":"User not found"}` |
+| `GET /users` | 190 records, **none** carrying `confNumber`, `Company` or `email` |
+| `POST /users` with `confNumber`, `Company`, `email` in the body | 201, but all three come back **`null`** -- the fields are ignored |
+| `PUT /users/:id` and `PUT /users/phone/:phone` with the three fields | 200, all three still **`null`** -- ignored here too |
+| `PUT /users/conf/CLAUDEDOCTEST1` (no record has that number), full body | **404** `{"error":"User not found"}` -- it does not create |
+| `PUT /users/conf/CLAUDEDOCTEST1`, no body | 500 `{"error":"Failed to update user"}` |
+| `PATCH /users/conf/KVNLHY66K2P/balance` `{"amount":5}` | 200, balance 4650 -> 4655 -- **additive**, as §3a |
+| `PATCH /users/conf/kvnlhy66k2p/balance` `{"amount":-5}` | 200, balance back to 4650 -- lowercase works on writes too |
+| `PATCH /users/conf/CLAUDEDOCTEST1/balance` `{}` | 400 `{"error":"A valid numeric amount is required"}` -- the body is checked before the lookup |
+| `PATCH /users/conf/CLAUDEDOCTEST1/balance` `{"amount":5}` | 404 |
+| `DELETE /users/conf/CLAUDEDOCTEST1` | 404 |
+
+The by-confirmation record looks like this:
+
+```json
+{
+  "userId": 1,
+  "firstName": "Chris",
+  "lastName": "Test",
+  "phone": "512-555-1234",
+  "balance": 4650,
+  "photo": null,
+  "customAttrib": "Demo user",
+  "Company": null,
+  "email": null,
+  "confNumber": "KVNLHY66K2P"
+}
+```
+
+What this adds up to:
+
+- **The API cannot assign a confirmation number.** No write route stores
+  `confNumber`, `Company` or `email`; they are echoed back as `null` whatever
+  the body says. A record gets its number out of band, on the owner's side,
+  so a confirmation number is something to *look up*, never something the
+  booth or the demo can create. "Create User by Confirmation Number" in the
+  collection is a misnomer: the PUT updates a record that already has the
+  number and 404s otherwise.
+- **Nothing lists them.** The list, by-id and by-phone reads omit the field,
+  so there is no way to enumerate which users have a number; the only way to
+  resolve one is to ask for it.
+- **Reads and writes by number are case-insensitive**, unlike the exact-string
+  phone routes, so there is no spelling to agree on.
+- **The balance PATCH is the same ledger adjustment as §3a**: additive,
+  rounds to cents, no overdraft check, no idempotency key. Everything in §3a
+  about refusing overdrafts client-side and never auto-retrying applies.
+- **Still not observed:** a successful `PUT` or `DELETE` by confirmation
+  number. Both need a record that already carries a number, and the only one
+  we know of is the owner's test user, which is not ours to replace or delete.
+  Expect the by-id shapes (200 and the full record; `{"message":"User
+  deleted","user":{…}}`), and expect the PUT to replace rather than merge
+  like every other PUT here.
+
+The owner's test user `KVNLHY66K2P` (`userId` 1) is to be read and, at most,
+balance-adjusted back to where it started -- never replaced, never deleted.
+
 ## 4. CORS, and why the proxy exists
 
 The service sends **no `Access-Control-Allow-Origin` header**, on any method.
@@ -153,6 +237,7 @@ ambiguity.
 
 ```sh
 curl -s https://sbit.authconcepts.com:3033/api/health
+curl -s https://sbit.authconcepts.com:3033/api/users/conf/KVNLHY66K2P   # the owner's test user
 curl -s http://localhost:8080/db/users                  # through the local proxy
 curl -s https://swissbit-ideem.vercel.app/db/users      # through the Vercel proxy
 ```

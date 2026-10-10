@@ -45,9 +45,14 @@ Phase 2: LOGIN
   challenge. No hardware token needed for daily login.
 
 Phase 3: PROTECTED ACTIONS (step-up auth)
-  After login, sensitive operations (payments, transfers, settings changes)
-  trigger a step-up authentication -- the same authenticate() call used
-  for login, but scoped to a specific action.
+  After login, sensitive operations (authenticating, exchanging contacts,
+  viewing standings) trigger a step-up authentication -- the same
+  authenticate() call used for login, but scoped to a specific action.
+  Authenticate and P2P Contact Exchange then charge a fixed demo amount
+  to the attendee's record in the user database (PATCH /users/:id/balance
+  via the /db proxy) and the balance shown on the Actions screen updates;
+  the page refuses the charge itself when the balance is short, because
+  the API does not.
 
 Phase 4: ENABLING / DISABLING DEVICE
   User can disable device with click of button. To re-enable device, user must reinsert iShield Key.
@@ -114,8 +119,8 @@ Create a JSON configuration file with your Ideem application credentials:
 
 ```json
 {
-  "application_id": "704af5f5-161a-4bdd-b58f-6259dc99bc1a",
-  "api_key": "31becd2f-5af6-4bbe-bf83-128f48c53785",
+  "application_id": "ad9bf691-5803-4752-9f35-51f29ab8d58b",
+  "api_key": "0f7fdf8e-db1c-4370-88ae-f93078bfb974",
   "region": "demo",
   "server_key": "872a48de-9535-44c8-85d5-89fd8005b71a",
   "validate_url": "https://zsm-authenticator-demo.useideem.com/api/pkp/validate-token"
@@ -751,7 +756,8 @@ Demo-swissbit/
   vercel.json          -- Vercel deployment config
   fido-test.html/.js   -- Raw WebAuthn test page for hardware keys (create/get options, result checks)
   dev-server.mjs       -- Local server for the test page: result log + shared issued-credential list
-  docs/                -- Test findings (see ishield-pinless-discoverable.md)
+  docs/                -- iShield test findings (ishield-pinless-discoverable.md), the user
+                          API's measured behaviour (user-api.md) and its Postman collection
 ```
 
 ### Module Dependency Graph

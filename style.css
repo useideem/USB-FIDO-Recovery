@@ -465,6 +465,18 @@ body {
 
 /* ===== Action Grid ===== */
 
+.balance-line {
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  margin-bottom: 12px;
+}
+
+.balance-line b {
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
 .action-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

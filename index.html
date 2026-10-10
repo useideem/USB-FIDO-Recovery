@@ -74,10 +74,13 @@
     <!-- ACTIONS screen — logged in -->
     <div class="screen" id="ACTIONS">
       <div id="default-actions">
+        <!-- The account balance from the user database, shown once a record
+             is found for the User ID. Authenticate and P2P Contact Exchange move it. -->
+        <div id="balance-display" class="balance-line" hidden>Balance: <b id="balance-value">--</b></div>
         <div class="action-grid">
-          <button class="btn btn-action" data-action="make-payment">Make Payment</button>
-          <button class="btn btn-action" data-action="transfer-money">Transfer Money</button>
-          <button class="btn btn-action" data-action="change-setting">Change Setting</button>
+          <button class="btn btn-action" data-action="authenticate">Authenticate</button>
+          <button class="btn btn-action" data-action="p2p-contact-exchange">P2P Contact Exchange</button>
+          <button class="btn btn-action" data-action="view-point-standings">View Point Standings</button>
           <button class="btn btn-action" data-action="add-beneficiary">Add Beneficiary</button>
         </div>
 
