@@ -122,7 +122,7 @@ Create a JSON configuration file with your Ideem application credentials:
   "application_id": "ad9bf691-5803-4752-9f35-51f29ab8d58b",
   "api_key": "0f7fdf8e-db1c-4370-88ae-f93078bfb974",
   "region": "demo",
-  "server_key": "872a48de-9535-44c8-85d5-89fd8005b71a",
+  "server_key": "0f7fdf8e-db1c-4370-88ae-f93078bfb974",
   "validate_url": "https://zsm-authenticator-demo.useideem.com/api/pkp/validate-token"
 }
 ```
