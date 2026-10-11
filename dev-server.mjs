@@ -13,10 +13,14 @@
  *   POST /credentials           store { id, rpId, userName, publicKey, ... }
  *   GET  /credentials?rpId=...  list the credentials issued for that RP ID
  *
- * Finally it proxies /db/* to the Ideem user API. That API sends no CORS
- * headers, so a page cannot call it from the browser; going through this
- * server's own origin sidesteps that. Vercel does the same thing in
- * production, so pages fetch the same relative /db/... path either way.
+ * It proxies /db/* to the Ideem user API. That API sends no CORS headers,
+ * so a page cannot call it from the browser; going through this server's
+ * own origin sidesteps that. Vercel does the same thing in production, so
+ * pages fetch the same relative /db/... path either way.
+ *
+ * Finally it mounts the P2P Contact Exchange function (api/exchange.js) at
+ * /api/exchange, the path Vercel gives it, so the exchange works locally
+ * with records held in this process.
  *
  * Local testing only; Vercel serves the static files in production and
  * /log simply isn't there.
@@ -30,6 +34,8 @@ import { createServer } from 'http';
 import { readFile, writeFile, appendFile, mkdir } from 'fs/promises';
 import { join, extname, normalize, dirname } from 'path';
 import { fileURLToPath } from 'url';
+
+import exchange from './api/exchange.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 8080;
@@ -155,6 +161,35 @@ async function handleDb(req, res, url) {
   }
 }
 
+/**
+ * Runs the P2P Contact Exchange function in-process. It is written against
+ * the web Request/Response pair Vercel hands it, so this only bridges Node's
+ * req/res to that. Without Redis configured it keeps its records in a Map,
+ * which in this single process is exactly right.
+ */
+async function handleExchange(req, res, url) {
+  let body;
+  if (req.method !== 'GET' && req.method !== 'HEAD') {
+    body = '';
+    for await (const chunk of req) {
+      body += chunk;
+      if (body.length > MAX_LOG_BYTES) {
+        res.writeHead(413).end();
+        return;
+      }
+    }
+  }
+  const request = new Request(`http://localhost:${PORT}${url.pathname}${url.search}`, {
+    method: req.method,
+    headers: { 'Content-Type': req.headers['content-type'] || 'application/json' },
+    body
+  });
+  const response = await exchange.fetch(request);
+  const text = await response.text();
+  console.log(`[exchange] ${req.method} ${url.pathname}${url.search} -> ${response.status}`);
+  res.writeHead(response.status, Object.fromEntries(response.headers)).end(text);
+}
+
 async function handleStatic(req, res) {
   const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   const relative = normalize(path === '/' ? '/index.html' : path).replace(/^([/\\])+/, '');
@@ -181,6 +216,7 @@ createServer((req, res) => {
     return handleCredentials(req, res, url);
   }
   if (url.pathname === '/db' || url.pathname.startsWith('/db/')) return handleDb(req, res, url);
+  if (url.pathname === '/api/exchange') return handleExchange(req, res, url);
   if (req.method === 'GET' || req.method === 'HEAD') return handleStatic(req, res);
   res.writeHead(405).end();
 }).listen(PORT, '127.0.0.1', () => {

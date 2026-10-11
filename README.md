@@ -48,11 +48,14 @@ Phase 3: PROTECTED ACTIONS (step-up auth)
   After login, sensitive operations (authenticating, exchanging contacts,
   viewing standings) trigger a step-up authentication -- the same
   authenticate() call used for login, but scoped to a specific action.
-  Authenticate and P2P Contact Exchange then charge a fixed demo amount
-  to the attendee's record in the user database (PATCH /users/:id/balance
-  via the /db proxy) and the balance shown on the Actions screen updates;
-  the page refuses the charge itself when the balance is short, because
-  the API does not.
+  Authenticate then charges a fixed demo amount to the attendee's record
+  in the user database (PATCH /users/:id/balance via the /db proxy) and
+  the balance shown on the Actions screen updates; the page refuses the
+  charge itself when the balance is short, because the API does not.
+  P2P Contact Exchange opens a QR code instead. Another attendee scans
+  it, logs in on their own phone the same way, and both phones then show
+  the other person's name and phone number, read from the user database
+  by api/exchange.js. Each side's passkey login is what authorizes it.
 
 Phase 4: ENABLING / DISABLING DEVICE
   User can disable device with click of button. To re-enable device, user must reinsert iShield Key.
@@ -748,14 +751,16 @@ Demo-swissbit/
   umfa.js              -- ZSM + Passkeys+ integration (wraps @ideem SDKs)
   app.js               -- Demo UI orchestration (wires modules to DOM)
   state.js             -- Simple reactive state class (demo utility, not for production)
-  index.html           -- Single-page HTML with three screens
+  index.html           -- Single-page HTML with four screens
+  api/db.js            -- Vercel function: proxy to the user API (/db/*)
+  api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
   zsm_app_config.json  -- Ideem application credentials
   build.js             -- Copies SDK files from node_modules to vendor/
   vendor/              -- Vendored SDK files (served as static assets)
   package.json         -- npm dependencies
   vercel.json          -- Vercel deployment config
   fido-test.html/.js   -- Raw WebAuthn test page for hardware keys (create/get options, result checks)
-  dev-server.mjs       -- Local server for the test page: result log + shared issued-credential list
+  dev-server.mjs       -- Local server: static files, /db proxy, /api/exchange, test-page result log
   docs/                -- iShield test findings (ishield-pinless-discoverable.md), the user
                           API's measured behaviour (user-api.md) and its Postman collection
 ```

@@ -140,6 +140,26 @@
       <button id="logout-btn" class="btn btn-secondary">Log Out</button>
     </div>
 
+    <!-- EXCHANGE screen — P2P Contact Exchange. The same screen serves both
+         sides: the initiator shows a QR and waits, the responder arrives via
+         ?exchange=<code>, logs in, and lands here with the result. -->
+    <div class="screen" id="EXCHANGE">
+      <p class="exchange-title" id="exchange-title"></p>
+      <div class="exchange-qr" id="exchange-qr-section" hidden>
+        <div class="exchange-qr-code" id="exchange-qr" role="img"
+             aria-label="QR code the other person scans to exchange contacts"></div>
+      </div>
+      <div id="exchange-status" class="flash" role="status" aria-live="polite"></div>
+      <div class="contact-card" id="exchange-card" hidden>
+        <img id="exchange-photo" class="contact-photo" alt="" hidden>
+        <div class="contact-name" id="exchange-name"></div>
+        <div class="contact-phone" id="exchange-phone"></div>
+        <div class="contact-id" id="exchange-userid"></div>
+      </div>
+      <p class="exchange-note" id="exchange-note" hidden></p>
+      <button id="exchange-done" class="btn btn-primary">Done</button>
+    </div>
+
     <!-- Status pills — always visible -->
     <div class="status-pills">
       <span class="pill">iShield: <b id="ishield-status">--</b></span>

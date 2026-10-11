@@ -12,6 +12,8 @@
  *   1. Trust Device  -- webauthnEnroll() then enroll() with Passkeys+
  *   2. Login         -- authenticate() with Passkeys+ (no USB key needed)
  *   3. Actions       -- step-up authenticate() per protected action
+ *   3b. P2P Exchange -- after the step-up, a QR code another attendee scans;
+ *                       both phones then show the other's contact (api/exchange.js)
  *   4. Suspend       -- flag device as suspended, require iShield to reactivate
  *
  * NOTE: state.js is loaded as a classic script (non-module) so that the
@@ -222,7 +224,9 @@ const DB_BASE = './db';
 /**
  * What each money action costs. The booth form never asks for an amount, so
  * the demo charges a fixed one per action. Actions missing from this table
- * step up and stop; they touch no balance.
+ * step up and stop; they touch no balance. P2P Contact Exchange branches to
+ * its own screen before this table is consulted, so its entry is unused
+ * until it is decided whether an exchange should cost anything.
  */
 const ACTION_AMOUNTS = {
   'authenticate': 25,
@@ -330,12 +334,260 @@ async function settleAction(user, actionLabel, amount) {
 }
 
 // ---------------------------------------------------------------------------
+// P2P Contact Exchange
+//
+// Two logged-in attendees swap name and phone. The initiator taps the action,
+// passes the step-up, and gets a code from api/exchange.js that this page
+// shows as a QR. The responder scans it, lands here with ?exchange=<code>,
+// logs in the usual way, and that login is what authorizes sending their
+// User ID against the code. The server fills in both contacts from the user
+// database, the initiator's poll sees it, and both screens show the other
+// person. The ZSM token never leaves umfa.js: its validation window is a few
+// seconds, so the server trusts the User ID and looks the contact up itself.
+// ---------------------------------------------------------------------------
+
+/** The matchmaker, relative like DB_BASE: dev-server.mjs and Vercel both mount it here. */
+const EXCHANGE_API = './api/exchange';
+/** How often the initiator's page asks whether someone has scanned. */
+const EXCHANGE_POLL_MS = 2000;
+/** sessionStorage key holding a scanned code until this phone has logged in. */
+const PENDING_EXCHANGE_KEY = 'pendingExchange';
+
+/**
+ * The exchange this page is part of, if any. `role` is 'initiator' (this
+ * phone showed the QR) or 'responder' (this phone scanned it). `record` is
+ * the server's copy, refreshed by polling or by the completion response.
+ */
+const exchange = { active: false, role: null, code: null, record: null, pollTimer: null };
+
+function getPendingExchange() {
+  try { return sessionStorage.getItem(PENDING_EXCHANGE_KEY) || ''; } catch (_) { return ''; }
+}
+
+function setPendingExchange(code) {
+  try {
+    if (code) sessionStorage.setItem(PENDING_EXCHANGE_KEY, code);
+    else sessionStorage.removeItem(PENDING_EXCHANGE_KEY);
+  } catch (_) { /* private mode: the code simply is not remembered */ }
+}
+
+/** The URL the QR carries: this origin, since the code lives on the deployment that issued it. */
+function exchangeUrl(code) {
+  return `${location.origin}/?exchange=${encodeURIComponent(code)}`;
+}
+
+/**
+ * One call to the matchmaker. Never throws: a network failure comes back as
+ * status 0 so every caller branches on the status alone.
+ */
+async function exchangeFetch(query, body) {
+  try {
+    const res = await fetch(EXCHANGE_API + query, {
+      method: body ? 'POST' : 'GET',
+      cache: 'no-store',
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined
+    });
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* no body */ }
+    return { status: res.status, ok: res.ok, data: data ?? {} };
+  } catch (err) {
+    return { status: 0, ok: false, data: { error: err.message } };
+  }
+}
+
+/**
+ * Initiator side, after the step-up: ask for a code, show it as a QR, and
+ * poll until the other person has logged in or the code expires.
+ */
+async function startExchange(user) {
+  const { ok, data } = await exchangeFetch('', { userId: user });
+  if (!ok) {
+    showFlash('action-status', `P2P Contact Exchange unavailable: ${data.error || 'no response'}`, 'failure', 4000);
+    return;
+  }
+  Object.assign(exchange, { active: true, role: 'initiator', code: data.code, record: data });
+  showScreen('EXCHANGE');
+  renderExchange();
+  await renderExchangeQr(exchangeUrl(data.code));
+  exchange.pollTimer = setTimeout(pollExchange, EXCHANGE_POLL_MS);
+}
+
+/** Re-reads the record; stops on completion, on expiry, or once the screen is left. */
+async function pollExchange() {
+  exchange.pollTimer = null;
+  if (!exchange.active || exchange.role !== 'initiator') return;
+  const { status, ok, data } = await exchangeFetch(`?code=${encodeURIComponent(exchange.code)}`);
+  if (!exchange.active) return;   // Done was tapped while the request was in flight
+  if (status === 404) {
+    renderExchange({ expired: true });
+    return;
+  }
+  if (ok) {
+    exchange.record = data;
+    if (data.responder) {
+      renderExchange();
+      return;
+    }
+  }
+  exchange.pollTimer = setTimeout(pollExchange, EXCHANGE_POLL_MS);
+}
+
+/**
+ * Responder side, right after login: send this User ID against the scanned
+ * code. The login that just happened is the passkey authentication that
+ * authorizes it, so there is no second prompt.
+ */
+async function completeExchange(user, code) {
+  setPendingExchange('');
+  Object.assign(exchange, { active: true, role: 'responder', code, record: null });
+  showScreen('EXCHANGE');
+  renderExchange();
+  const { status, ok, data } = await exchangeFetch(`?code=${encodeURIComponent(code)}`, { userId: user });
+  if (!exchange.active) return;
+  if (status === 404) return renderExchange({ expired: true });
+  if (status === 409) return renderExchange({ used: true });
+  if (!ok) return renderExchange({ error: data.error || 'no response' });
+  exchange.record = data;
+  renderExchange();
+}
+
+/**
+ * Tells someone who has just scanned a QR what they are logging in for, or
+ * that the code is already dead, before they go looking for their key.
+ */
+async function announceExchangeInvite(code) {
+  const { status, ok, data } = await exchangeFetch(`?code=${encodeURIComponent(code)}`);
+  if (status === 404) {
+    setPendingExchange('');
+    showFlash('flash-status', 'This QR code has expired. Ask them to tap P2P Contact Exchange again.', 'failure', 8000);
+    return;
+  }
+  if (!ok) return;   // the server will say so again after login
+  if (data.responder) {
+    setPendingExchange('');
+    showFlash('flash-status', 'This code was already used.', 'failure', 8000);
+    return;
+  }
+  showFlash('flash-status', `Log in to exchange contacts with ${displayName(data.initiator)}.`, 'success', 8000);
+}
+
+/** Leaves the exchange: stops polling and forgets the record and any pending code. */
+function endExchange() {
+  if (exchange.pollTimer) clearTimeout(exchange.pollTimer);
+  Object.assign(exchange, { active: false, role: null, code: null, record: null, pollTimer: null });
+  setPendingExchange('');
+  document.getElementById('exchange-qr')?.replaceChildren();
+}
+
+/** Draws the QR with the vendored generator, the same way enroll.js does. */
+async function renderExchangeQr(url) {
+  const box = document.getElementById('exchange-qr');
+  try {
+    const { qrcode } = await import('./vendor/qrcode-generator/dist/qrcode.mjs');
+    const qr = qrcode(0, 'M');    // 0: smallest version the data fits in
+    qr.addData(url);
+    qr.make();
+    // scalable drops the pixel size so the stylesheet decides how big it
+    // prints; the margin is the four-module quiet zone a camera needs.
+    box.innerHTML = qr.createSvgTag({ cellSize: 8, margin: 8 * 4, scalable: true });
+  } catch (err) {
+    console.error('[exchange] QR failed:', err);
+    box.textContent = url;
+  }
+}
+
+/**
+ * Puts the exchange on screen. The card shows the OTHER party once the record
+ * has both sides; until then the status line says what is being waited on.
+ */
+function renderExchange({ expired = false, used = false, error = '' } = {}) {
+  const $ = (id) => document.getElementById(id);
+  const record = exchange.record;
+  const initiator = exchange.role === 'initiator';
+  const complete = !!(record && record.responder);
+  const other = complete ? (initiator ? record.responder : record.initiator) : null;
+  const over = complete || expired || used || !!error;
+
+  let title = 'P2P Contact Exchange';
+  let status;
+  let state;
+  if (expired) {
+    status = initiator
+      ? 'This code expired before anyone scanned it.'
+      : 'This QR code has expired. Ask them to tap P2P Contact Exchange again.';
+    state = 'failure';
+  } else if (used) {
+    status = 'This code was already used by someone else.';
+    state = 'failure';
+  } else if (error) {
+    status = `Exchange failed: ${error}`;
+    state = 'failure';
+  } else if (complete) {
+    title = 'Contact received';
+    status = initiator
+      ? 'Exchange complete. They have your contact too.'
+      : `Exchange complete. ${displayName(record.initiator)} has your contact too.`;
+    state = 'success';
+  } else {
+    title = initiator ? 'Have them scan this code' : 'Exchanging contacts…';
+    status = initiator ? 'Waiting for the other person to log in…' : 'Sending your contact…';
+    state = 'info';
+  }
+
+  $('exchange-title').textContent = title;
+  $('exchange-status').textContent = status;
+  $('exchange-status').className = 'flash ' + state;
+  $('exchange-qr-section').hidden = !(initiator && !over);
+  $('exchange-done').textContent = over ? 'Done' : 'Cancel';
+
+  const card = $('exchange-card');
+  card.hidden = !other;
+  if (other) {
+    $('exchange-name').textContent = other.found ? displayName(other) : 'No contact record';
+    $('exchange-phone').textContent = other.found ? formatPhone(other.phone) : '';
+    $('exchange-phone').hidden = !other.found;
+    $('exchange-userid').textContent = `User ID: ${other.userId}`;
+    const photo = $('exchange-photo');
+    const hasPhoto = typeof other.photo === 'string' && /^(https?:|data:image\/)/.test(other.photo);
+    photo.hidden = !hasPhoto;
+    if (hasPhoto) photo.src = other.photo;
+    else photo.removeAttribute('src');
+  }
+
+  // Off localhost, a Map-backed store means Redis is not wired up yet: the
+  // exchange may work on a warm instance and then not, so say so rather
+  // than let it look like a bug in the pages.
+  const note = $('exchange-note');
+  const memoryOffLocalhost = record?.store === 'memory'
+    && !['localhost', '127.0.0.1', '[::1]'].includes(location.hostname);
+  note.hidden = !memoryOffLocalhost;
+  note.textContent = memoryOffLocalhost
+    ? 'This deployment has no Redis store, so an exchange can be lost between function instances. Add Upstash Redis to the Vercel project.'
+    : '';
+}
+
+function displayName(contact) {
+  if (!contact) return '';
+  const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
+  return name || contact.userId || '';
+}
+
+/** (913) 555-1235 for a ten-digit number; anything else as stored. */
+function formatPhone(value) {
+  const text = String(value || '');
+  const digits = phoneDigits(text);
+  return digits.length === 10 ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : text;
+}
+
+// ---------------------------------------------------------------------------
 // showScreen — simple screen switcher
 // ---------------------------------------------------------------------------
 const SCREEN_ANNOUNCEMENTS = {
   'SETUP': 'Setup screen. Enter your user ID and trust this device.',
   'LOGIN': 'Login screen. Authenticate to continue.',
-  'ACTIONS': 'Actions screen. You are logged in.'
+  'ACTIONS': 'Actions screen. You are logged in.',
+  'EXCHANGE': 'P2P Contact Exchange screen.'
 };
 
 function showScreen(screenId) {
@@ -349,14 +601,16 @@ function showScreen(screenId) {
     target.setAttribute('aria-hidden', 'false');
   }
 
-  // Username field is readonly on ACTIONS screen, and on LOGIN when "New" is off (existing user)
+  // Username field is readonly once logged in (ACTIONS, EXCHANGE), and on
+  // LOGIN when "New" is off (existing user)
+  const loggedInScreen = screenId === 'ACTIONS' || screenId === 'EXCHANGE';
   const usernameEl = document.getElementById('username');
   const isNew = document.getElementById('new-user-toggle').checked;
-  usernameEl.readOnly = (screenId === 'ACTIONS') || (screenId === 'LOGIN' && !isNew);
+  usernameEl.readOnly = loggedInScreen || (screenId === 'LOGIN' && !isNew);
 
-  // Hide "New" toggle on ACTIONS screen (irrelevant once logged in)
+  // Hide "New" toggle once logged in (irrelevant by then)
   const newToggle = document.getElementById('new-user-toggle-container');
-  if (newToggle) newToggle.hidden = (screenId === 'ACTIONS');
+  if (newToggle) newToggle.hidden = loggedInScreen;
 
   // Announce screen change to screen readers
   const announcer = document.getElementById('screen-announcer');
@@ -441,7 +695,17 @@ async function updateUI() {
   // Determine which screen to show — driven by "New" toggle, not server-side passkey
   const isNewUser = newToggleEl.checked;
   if (STATE.loginID) {
-    showScreen('ACTIONS');
+    const pendingCode = getPendingExchange();
+    if (exchange.active) {
+      showScreen('EXCHANGE');
+    } else if (pendingCode) {
+      // Arrived by scanning someone's P2P QR: the login that just finished is
+      // the authentication the exchange needs, so it completes right away.
+      completeExchange(STATE.loginID, pendingCode)
+        .catch(err => console.error('[exchange] completion failed:', err));
+    } else {
+      showScreen('ACTIONS');
+    }
     // Load the account once per login; the money actions re-read it themselves.
     if (accountFor !== STATE.loginID) await refreshAccount(STATE.loginID);
   } else if (isNewUser) {
@@ -710,6 +974,13 @@ async function handleProtectedAction(actionKey) {
   }
   updateAuthIcons({ zsm: true, passkeys: usePasskeys });
 
+  // P2P Contact Exchange has its own screen: the step-up above is what
+  // authorizes issuing a code, and the exchange takes it from there.
+  if (actionKey === 'p2p-contact-exchange') {
+    await startExchange(STATE.loginID);
+    return;
+  }
+
   // The step-up is what the action protects; a money action then settles
   // against the user database. The other actions are done at this point.
   const amount = ACTION_AMOUNTS[actionKey];
@@ -726,6 +997,7 @@ async function handleProtectedAction(actionKey) {
 // logOut
 // ---------------------------------------------------------------------------
 async function logOut() {
+  endExchange();
   resetClient();
   STATE.reset();
   account = null;
@@ -801,6 +1073,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Log Out
   document.getElementById('logout-btn').addEventListener('click', () => logOut());
 
+  // Done / Cancel on the exchange screen: back to the actions, still logged in
+  document.getElementById('exchange-done').addEventListener('click', async () => {
+    endExchange();
+    await updateUI();
+  });
+
   // Suspend Device
   document.getElementById('suspend-device').addEventListener('click', () => suspendDevice());
 
@@ -833,6 +1111,22 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('new-user-toggle').checked = false;
     document.getElementById('use-passkeys-toggle').checked = false;
     setPasskeysToggle(urlUserId, false);
+  }
+
+  // ?exchange= is what another attendee's P2P QR carries. The code is kept
+  // until this phone has logged in; updateUI then completes the exchange.
+  // It is dropped from the address bar so a reload cannot replay a code
+  // that was already used.
+  const urlExchange = urlParams.get('exchange');
+  if (urlExchange) {
+    setPendingExchange(urlExchange.trim().toUpperCase());
+    // Whoever scanned is an attendee with a key: the login path, not the
+    // create path, same as arriving from the booth QR.
+    document.getElementById('new-user-toggle').checked = false;
+    urlParams.delete('exchange');
+    const query = urlParams.toString();
+    history.replaceState(null, '', location.pathname + (query ? `?${query}` : ''));
+    announceExchangeInvite(getPendingExchange());
   }
 
   // ?msg= — show flash message from redirect

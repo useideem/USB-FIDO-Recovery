@@ -540,6 +540,103 @@ body {
   margin-bottom: 12px;
 }
 
+.flash.info {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #1e40af;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+/* ===== P2P Contact Exchange ===== */
+
+.exchange-title {
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 14px;
+}
+
+/* Same ground and quiet zone as the booth QR: a camera needs the white
+   border to find the code whatever the card around it does. */
+.exchange-qr {
+  text-align: center;
+  margin-bottom: 14px;
+}
+
+.exchange-qr[hidden] {
+  display: none;
+}
+
+.exchange-qr-code {
+  display: inline-block;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: #fff;
+  line-height: 0;
+}
+
+.exchange-qr-code svg {
+  display: block;
+  width: 232px;
+  height: 232px;
+}
+
+.contact-card {
+  border: 1.5px solid #1e40af;
+  border-radius: var(--radius-md);
+  padding: 16px;
+  margin-bottom: 12px;
+  text-align: center;
+  background: var(--color-bg-warm);
+}
+
+.contact-card[hidden] {
+  display: none;
+}
+
+.contact-photo {
+  display: block;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 10px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.contact-photo[hidden] {
+  display: none;
+}
+
+.contact-name {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.contact-phone {
+  margin-top: 4px;
+  font-size: 1rem;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.contact-id {
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.exchange-note {
+  margin: 0 0 8px;
+  text-align: center;
+  font-size: 0.75rem;
+  color: var(--color-warning);
+}
+
 /* Action-status: always reserves space, no layout shift */
 #action-status {
   padding: 2px 12px;
