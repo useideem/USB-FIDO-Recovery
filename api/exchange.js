@@ -20,6 +20,7 @@
  *   POST /api/exchange              { userId }   -> 201 record   create
  *   GET  /api/exchange?code=XXXX                 -> 200 record   status (poll)
  *   POST /api/exchange?code=XXXX    { userId }   -> 200 record   complete
+ *   GET  /api/exchange                           -> 200 health   which store, which env names
  *
  * Status codes the page branches on: 404 no such code (never issued or
  * expired), 409 the code was already completed by someone else.
@@ -52,12 +53,30 @@ const CODE_LENGTH = 8;
 // ---------------------------------------------------------------------------
 
 /**
- * Both names are accepted: the Upstash integration on the Vercel Marketplace
- * injects KV_REST_API_URL / KV_REST_API_TOKEN by default, and a store created
- * on upstash.com directly documents UPSTASH_REDIS_REST_URL / _TOKEN.
+ * Finds the Upstash REST credentials in the environment. Both naming schemes
+ * are accepted: the Upstash integration on the Vercel Marketplace injects
+ * KV_REST_API_URL / KV_REST_API_TOKEN, and a store created on upstash.com
+ * directly documents UPSTASH_REDIS_REST_URL / _TOKEN. A Custom Prefix set when
+ * connecting the Vercel resource prepends `PREFIX_` to both names, so a suffix
+ * match is accepted too. Returns null when nothing usable is set.
  */
-const REDIS_URL = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
-const REDIS_TOKEN = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
+function redisCredentials(env = process.env) {
+  const names = Object.keys(env);
+  for (const base of ['KV_REST_API_URL', 'UPSTASH_REDIS_REST_URL']) {
+    const urlKey = names.includes(base) ? base : names.find(name => name.endsWith(`_${base}`));
+    if (!urlKey) continue;
+    const tokenKey = urlKey.slice(0, -'URL'.length) + 'TOKEN';
+    if (env[urlKey] && env[tokenKey]) return { url: env[urlKey], token: env[tokenKey], urlKey };
+  }
+  return null;
+}
+
+/** Names, never values, of the Redis-looking variables, for the health check. */
+function redisEnvNames(env = process.env) {
+  return Object.keys(env).filter(name => /KV|REDIS|UPSTASH/i.test(name)).sort();
+}
+
+const REDIS = redisCredentials();
 
 /**
  * A key-value store with expiry. Values are strings.
@@ -117,7 +136,7 @@ function redisStore(url, token) {
   };
 }
 
-const store = REDIS_URL && REDIS_TOKEN ? redisStore(REDIS_URL, REDIS_TOKEN) : memoryStore();
+const store = REDIS ? redisStore(REDIS.url, REDIS.token) : memoryStore();
 
 const recordKey = (code) => `exchange:${code}`;
 const claimKey = (code) => `exchange:${code}:claim`;
@@ -133,7 +152,7 @@ export default {
 
     try {
       if (request.method === 'GET') {
-        return code ? await status(code) : json({ error: 'code is required' }, 400);
+        return code ? await status(code) : health();
       }
       if (request.method === 'POST') {
         const body = await readJson(request);
@@ -279,6 +298,22 @@ async function readJson(request) {
 
 function withStore(record) {
   return { ...record, store: store.kind };
+}
+
+/**
+ * GET without a code. Says which store this deployment runs on, which
+ * variable supplied the Redis URL, and the names of every Redis-looking
+ * variable it can see, so a mis-wired Vercel connection can be diagnosed from
+ * a browser without exposing any value.
+ */
+function health() {
+  return json({
+    ok: true,
+    store: store.kind,
+    redisVar: REDIS ? REDIS.urlKey : null,
+    redisEnv: redisEnvNames(),
+    ttlSeconds: TTL_SECONDS
+  });
 }
 
 function json(body, status = 200) {
