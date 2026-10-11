@@ -35,7 +35,7 @@ cloudflared tunnel --no-autoupdate --url http://localhost:8080
 
 ## Vercel deployment
 
-Production is `https://swissbit-ideem.vercel.app`, deployed from GitHub (`useideem/authenticate26`, branch `main`). There is no `.vercel/` link in this checkout and no Vercel CLI installed; push to deploy. `vercel.json` sets `outputDirectory` to `.`, so the whole repo root is the static site, including `api/db.js` source and `zsm_app_config.json`.
+Production is `https://authenticate26.vercel.app`, deployed from GitHub (`useideem/authenticate26`, branch `main`). There is no `.vercel/` link in this checkout and no Vercel CLI installed; push to deploy. `vercel.json` sets `outputDirectory` to `.`, so the whole repo root is the static site, including `api/db.js` source and `zsm_app_config.json`.
 
 There are two serverless functions. `api/db.js` is a proxy to the Ideem user API at `https://sbit.authconcepts.com:3033/api` (override with the `DB_API` env var). The rewrite in `vercel.json` maps `/db/:path*` to `/api/db?path=:path*`. Two constraints were measured on real deployments and must be kept:
 

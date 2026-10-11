@@ -272,7 +272,7 @@ The booth Mac enrolls the key; the attendee then carries on with their own
 phone. The seam between the two is a query parameter:
 
 ```
-https://swissbit-ideem.vercel.app/?userid=9135551234
+https://authenticate26.vercel.app/?userid=9135551234
 ```
 
 `app.js` reads `?userid=` on load and puts it in the User ID field. The value

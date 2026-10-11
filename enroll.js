@@ -196,7 +196,7 @@ export async function saveUser({ firstName, lastName, phone }) {
  * QR keeps the origin the enrollment was done on, which is also the origin the
  * credential's RP ID is bound to.
  */
-const PUBLIC_DEMO_ORIGIN = 'https://swissbit-ideem.vercel.app';
+const PUBLIC_DEMO_ORIGIN = 'https://authenticate26.vercel.app';
 const LOCAL_HOSTNAMES = ['localhost', '127.0.0.1', '[::1]', '::1'];
 
 function demoUrl(phone) {

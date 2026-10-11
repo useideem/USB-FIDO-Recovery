@@ -239,5 +239,5 @@ ambiguity.
 curl -s https://sbit.authconcepts.com:3033/api/health
 curl -s https://sbit.authconcepts.com:3033/api/users/conf/KVNLHY66K2P   # the owner's test user
 curl -s http://localhost:8080/db/users                  # through the local proxy
-curl -s https://swissbit-ideem.vercel.app/db/users      # through the Vercel proxy
+curl -s https://authenticate26.vercel.app/db/users      # through the Vercel proxy
 ```
