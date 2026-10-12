@@ -47,6 +47,14 @@ const packages = [
     name: 'qrcode-generator',
     files: ['README.md'],
     directories: ['dist']
+  },
+  {
+    // QR code reader for register.js -- decodes the badge QR from camera
+    // frames in browsers without a native BarcodeDetector (Safari). A UMD
+    // bundle, so register.html loads ./vendor/jsqr/dist/jsQR.js as a classic
+    // script and the page reads window.jsQR.
+    name: 'jsqr',
+    files: ['README.md', 'dist/jsQR.js']
   }
 ];
 

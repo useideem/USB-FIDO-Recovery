@@ -44,6 +44,11 @@ Phase 1: TRUST DEVICE
   The demo then runs the simulated Silent Network Authentication check
   (sna.js) and ends on four indicators: iShield, Number Verified,
   Device Bound, Passkey. This is a one-time operation per device.
+  An attendee reaches it by scanning their conference badge on the
+  registration page (register.html): the laptop camera reads the badge
+  QR, the user database answers with their name, phone and email, and a
+  second QR opens the demo on their phone with the number already in the
+  User ID field and New switched on, ready for Trust Device.
 
 Phase 2: LOGIN
   User authenticates on a trusted device. The ZSM share in IndexedDB
@@ -760,6 +765,11 @@ Demo-swissbit/
   app.js               -- Demo UI orchestration (wires modules to DOM)
   state.js             -- Simple reactive state class (demo utility, not for production)
   index.html           -- Single-page HTML with five screens
+  register.html/.js    -- Registration page: camera scan of the badge QR (BarcodeDetector or the
+                          vendored jsQR), lookup by confirmation number, QR into the demo with
+                          ?userid=<digits>&new=1
+  enroll.html/.js      -- Booth page: writes the phone number onto an iShield key as a discoverable
+                          credential and shows a QR into the demo with ?userid=<digits>
   api/db.js            -- Vercel function: proxy to the user API (/db/*)
   api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
   zsm_app_config.json  -- Ideem application credentials

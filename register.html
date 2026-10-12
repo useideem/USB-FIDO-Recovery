@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Register a Badge | Swissbit + Ideem</title>
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo-row">
+      <img src="./swissbit_logo.png" alt="Swissbit" class="logo logo-swissbit">
+      <span class="logo-divider"></span>
+      <img src="./ideem-logo.png" alt="Ideem" class="logo logo-ideem">
+    </div>
+    <p class="subtitle">Register with your conference badge</p>
+  </header>
+
+  <main class="card rg-card">
+
+    <!-- Flash message: scanner state, lookup outcome, camera errors -->
+    <div id="flash-status" class="flash" role="status" aria-live="polite"></div>
+
+    <!-- REGISTER: one button opens the camera and starts looking for a QR -->
+    <section class="rg-step" id="register-section" aria-labelledby="register-title">
+      <h2 class="ft-section-title" id="register-title">Step 1: Scan your badge</h2>
+      <p class="ft-hint">Register opens this computer's camera. Hold the QR code on your badge up to it; the scan stops on its own once the code is read.</p>
+      <button id="register-btn" type="button" class="btn btn-primary">Register</button>
+
+      <!-- The live camera preview, shown only while scanning -->
+      <div class="rg-scanner" id="scanner" hidden>
+        <div class="rg-viewfinder">
+          <video id="camera" autoplay playsinline muted></video>
+          <div class="rg-frame" aria-hidden="true"></div>
+        </div>
+        <p class="ft-hint rg-decoder" id="decoder-info"></p>
+        <button id="cancel-scan-btn" type="button" class="btn btn-secondary">Cancel</button>
+      </div>
+
+      <!-- Typed fallback for a camera that will not open, or a badge that
+           will not scan. Same lookup as a scan. -->
+      <details class="rg-manual">
+        <summary>Type the badge ID instead</summary>
+        <form id="manual-form" class="rg-manual-form" novalidate>
+          <input type="text" id="badge-id" class="ft-input" placeholder="Confirmation number" autocomplete="off" autocapitalize="characters" spellcheck="false">
+          <button id="lookup-btn" type="submit" class="btn btn-secondary">Look up</button>
+        </form>
+      </details>
+    </section>
+
+    <!-- ATTENDEE: what the user database holds for the scanned ID -->
+    <section class="rg-step rg-attendee" id="attendee-section" aria-labelledby="attendee-title" hidden>
+      <h2 class="ft-section-title" id="attendee-title">Step 2: Your details</h2>
+      <dl class="rg-details">
+        <div class="rg-detail"><dt>Name</dt><dd id="attendee-name">--</dd></div>
+        <div class="rg-detail"><dt>Phone</dt><dd id="attendee-phone">--</dd></div>
+        <div class="rg-detail"><dt>Email</dt><dd id="attendee-email">--</dd></div>
+        <div class="rg-detail"><dt>Badge ID</dt><dd id="attendee-id" class="rg-mono">--</dd></div>
+      </dl>
+      <p class="en-warning" id="attendee-note" hidden></p>
+    </section>
+
+    <!-- SCAN: the number from the record, handed to the demo on the attendee's phone -->
+    <section class="ft-section en-qr rg-step" id="qr-section" aria-labelledby="qr-title" hidden>
+      <h2 class="ft-section-title" id="qr-title">Step 3: Scan with your phone</h2>
+      <p class="ft-hint">The demo opens with your phone number as the User ID and New switched on. Press <b>Trust Device</b> there to enroll your iShield key and this phone.</p>
+      <div class="en-qr-code" id="qr-code" role="img" aria-label="QR code that opens the demo for this phone number"></div>
+      <a class="en-qr-link" id="qr-link" href="#" target="_blank" rel="noopener"></a>
+      <p class="ft-hint en-qr-note" id="qr-note" hidden></p>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer ft-footer">
+    <a href="./enroll.html">Booth enrollment</a>
+    <a href="./fido-test.html">Key tester</a>
+    <a href="./index.html">Back to the demo</a>
+  </footer>
+
+  <!-- jsQR is a UMD bundle that sets window.jsQR; the module below reads it
+       when the browser has no BarcodeDetector of its own. -->
+  <script src="./vendor/jsqr/dist/jsQR.js"></script>
+  <script type="module" src="./register.js"></script>
+
+</body>
+</html>

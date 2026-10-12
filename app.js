@@ -1431,23 +1431,26 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('username').value = savedUsername;
   }
 
-  // Auto-populate from URL parameters. ?userid= is what the enrollment page's
-  // QR code carries: the attendee scans it and arrives with their number
-  // already in the field, having typed nothing.
+  // Auto-populate from URL parameters. ?userid= is what the booth and
+  // registration pages' QR codes carry: the attendee scans one and arrives
+  // with their number already in the field, having typed nothing.
   const urlParams = new URLSearchParams(window.location.search);
   const urlUserId = urlParams.get('userid');
   if (urlUserId) {
     document.getElementById('username').value = urlUserId;
     localStorage.setItem('username', urlUserId);
-    // Somebody arriving from the booth QR was enrolled on a key a moment ago,
-    // so they are an existing user on a new device: New OFF routes them to the
-    // login path, which READS the key and checks its user handle against this
-    // field. New ON would run the create path instead and write a second
-    // credential to the same key for the same number. Passkeys is left as
-    // the attendee last set it (on by default), so the binding enrolls a
-    // Passkeys+ passkey too and the Passkey indicator after the number
-    // check lights.
-    document.getElementById('new-user-toggle').checked = false;
+    // Which path they take depends on the page that sent them. The booth QR
+    // (enroll.html) sends somebody whose number was written to a key a moment
+    // ago, an existing user on a new device: New OFF routes them to the login
+    // path, which READS the key and checks its user handle against this
+    // field, where New ON would write a second credential to the same key for
+    // the same number. The registration QR (register.html) adds &new=1: that
+    // attendee has a record from their badge and nothing on a key yet, so
+    // New ON takes them to Trust Device, which creates one. Passkeys is left
+    // as the attendee last set it (on by default), so the binding enrolls a
+    // Passkeys+ passkey too and the Passkey indicator after the number check
+    // lights.
+    document.getElementById('new-user-toggle').checked = urlParams.get('new') === '1';
   }
 
   // ?exchange= is what another attendee's P2P QR carries. The code goes to

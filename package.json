@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@ideem/zsm-client-sdk": "latest",
+    "jsqr": "^1.4.0",
     "qrcode-generator": "^2.0.4"
   }
 }
