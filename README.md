@@ -44,13 +44,15 @@ Phase 1: TRUST DEVICE
   The demo then runs the simulated Silent Network Authentication check
   (sna.js) and ends on four indicators: iShield, Number Verified,
   Device Bound, Passkey. This is a one-time operation per device.
-  An attendee reaches it by scanning their conference badge on the
-  registration page (register.html): the laptop camera reads the badge
-  QR, the user database answers with their name, phone and email, and a
-  second QR opens the demo on their phone with the number already in the
-  User ID field and New switched on, ready for Trust Device. A badge the
-  database does not know opens a short form instead (name, phone, email);
-  Register adds the attendee and then shows the same QR.
+  An attendee starts on the registration page (register.html): the laptop
+  camera reads their badge QR and the user database answers with their
+  name, phone and email. A badge the database does not know opens a short
+  form instead (name, phone, email), and Manually Enter User opens that
+  form without a badge; Register adds the attendee. Enroll iShield Key
+  then writes the phone number onto their key as a discoverable credential
+  (key-enroll.js, the booth page's create), and a second QR opens the demo
+  on their phone with the number already in the User ID field: Login
+  reads it back off the key, then ZSM + Passkeys+ enroll on the phone.
 
 Phase 2: LOGIN
   User authenticates on a trusted device. The ZSM share in IndexedDB
@@ -768,8 +770,10 @@ Demo-swissbit/
   state.js             -- Simple reactive state class (demo utility, not for production)
   index.html           -- Single-page HTML with five screens
   register.html/.js    -- Registration page: camera scan of the badge QR (BarcodeDetector or the
-                          vendored jsQR), lookup by confirmation number, QR into the demo with
-                          ?userid=<digits>&new=1
+                          vendored jsQR), lookup by confirmation number or a form, the iShield
+                          create, then a QR into the demo with ?userid=<digits>
+  key-enroll.js        -- The discoverable create that puts a phone number on an iShield key, as a
+                          function for register.js (same options as enroll.js and fido-test.js)
   enroll.html/.js      -- Booth page: writes the phone number onto an iShield key as a discoverable
                           credential and shows a QR into the demo with ?userid=<digits>
   api/db.js            -- Vercel function: proxy to the user API (/db/*)

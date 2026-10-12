@@ -39,22 +39,17 @@
         <button id="cancel-scan-btn" type="button" class="btn btn-secondary">Cancel</button>
       </div>
 
-      <!-- Typed fallback for a camera that will not open, or a badge that
-           will not scan. Same lookup as a scan. -->
-      <details class="rg-manual">
-        <summary>Type the badge ID instead</summary>
-        <form id="manual-form" class="rg-manual-form" novalidate>
-          <input type="text" id="badge-id" class="ft-input" placeholder="Confirmation number" autocomplete="off" autocapitalize="characters" spellcheck="false">
-          <button id="lookup-btn" type="submit" class="btn btn-secondary">Look up</button>
-        </form>
-      </details>
+      <!-- No badge, or one that will not scan: the same form as for an
+           unknown badge, with nothing to look up first. -->
+      <button id="manual-entry-btn" type="button" class="btn btn-secondary">Manually Enter User</button>
     </section>
 
-    <!-- NEW ATTENDEE: the badge ID is not in the database, so take the details
-         here and add them. Shown in place of the details section. -->
+    <!-- NEW ATTENDEE: the badge ID is not in the database, or there is no
+         badge, so take the details here and add them. Shown in place of the
+         details section; the title and hint are set by the script. -->
     <section class="rg-step rg-new" id="new-attendee-section" aria-labelledby="new-attendee-title" hidden>
-      <h2 class="ft-section-title" id="new-attendee-title">Step 2: Register this badge</h2>
-      <p class="ft-hint">Nobody in the user database has badge ID <b id="new-attendee-id" class="rg-mono"></b>. Fill in the details and press Register to add them.</p>
+      <h2 class="ft-section-title" id="new-attendee-title">Step 2: Enter your details</h2>
+      <p class="ft-hint" id="new-attendee-hint">Fill in the details and press Register to add them.</p>
       <form id="new-attendee-form" class="rg-form" novalidate>
         <div class="en-row">
           <div class="ft-field">
@@ -91,19 +86,34 @@
       <p class="en-warning" id="attendee-note" hidden></p>
     </section>
 
-    <!-- SCAN: the number from the record, handed to the demo on the attendee's phone -->
+    <!-- ENROLL: put the number on an iShield key, the same create as enroll.html -->
+    <section class="rg-step" id="enroll-section" aria-labelledby="enroll-title" hidden>
+      <h2 class="ft-section-title" id="enroll-title">Step 3: Enroll iShield Key</h2>
+      <p class="ft-hint">Insert the attendee's iShield key, press the button, then touch the key when the browser asks. The key must have no PIN set: a PIN-less key answers with a touch on any phone, while a key with a PIN asks every one of them for it.</p>
+      <!-- Shown only in desktop Chrome, which cannot do a PIN-less create -->
+      <p class="en-warning" id="chrome-warning" hidden>
+        Desktop Chrome makes the key set a PIN before it will store a passkey, and every
+        device that reads the key afterwards will demand that PIN. Enroll in Safari instead.
+      </p>
+      <button id="enroll-key-btn" type="button" class="btn btn-primary">Enroll iShield Key</button>
+      <!-- Anything that would break retrieval stays in the open, as on enroll.html -->
+      <div id="enroll-warnings"></div>
+    </section>
+
+    <!-- SCAN: the number now on the key, handed to the demo on the attendee's phone -->
     <section class="ft-section en-qr rg-step" id="qr-section" aria-labelledby="qr-title" hidden>
-      <h2 class="ft-section-title" id="qr-title">Step 3: Scan with your phone</h2>
-      <p class="ft-hint">The demo opens with your phone number as the User ID and New switched on. Press <b>Trust Device</b> there to enroll your iShield key and this phone.</p>
+      <h2 class="ft-section-title" id="qr-title">Step 4: Scan with your phone</h2>
+      <p class="ft-hint">The demo opens with your phone number as the User ID. Press <b>Login</b> there and touch your iShield key when the phone asks.</p>
       <div class="en-qr-code" id="qr-code" role="img" aria-label="QR code that opens the demo for this phone number"></div>
       <a class="en-qr-link" id="qr-link" href="#" target="_blank" rel="noopener"></a>
-      <p class="ft-hint en-qr-note" id="qr-note" hidden></p>
+      <p class="en-warning en-qr-note" id="qr-note" hidden></p>
     </section>
 
   </main>
 
   <!-- Footer -->
   <footer class="footer ft-footer">
+    <p class="ft-hint" id="browser-info">Checking which browser this is...</p>
     <a href="./enroll.html">Booth enrollment</a>
     <a href="./fido-test.html">Key tester</a>
     <a href="./index.html">Back to the demo</a>

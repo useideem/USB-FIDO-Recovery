@@ -1444,9 +1444,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // ago, an existing user on a new device: New OFF routes them to the login
     // path, which READS the key and checks its user handle against this
     // field, where New ON would write a second credential to the same key for
-    // the same number. The registration QR (register.html) adds &new=1: that
-    // attendee has a record from their badge and nothing on a key yet, so
-    // New ON takes them to Trust Device, which creates one. Passkeys is left
+    // the same number. The registration QR (register.html) is the same case:
+    // that page writes the key before it draws the QR, so it carries no
+    // `new` parameter either. A link with &new=1 forces New ON for an
+    // attendee with nothing on a key yet, who then goes to Trust Device,
+    // which creates one; no page emits that today. Passkeys is left
     // as the attendee last set it (on by default), so the binding enrolls a
     // Passkeys+ passkey too and the Passkey indicator after the number check
     // lights.

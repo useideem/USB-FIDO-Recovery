@@ -1789,34 +1789,6 @@ body {
   text-align: center;
 }
 
-.rg-manual {
-  margin-top: 16px;
-}
-
-.rg-manual summary {
-  font-size: 0.75rem;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.rg-manual-form {
-  display: flex;
-  gap: 10px;
-  margin-top: 10px;
-}
-
-.rg-manual-form .ft-input {
-  flex: 1;
-  min-width: 0;
-}
-
-.rg-manual-form .btn-secondary {
-  width: auto;
-  margin-top: 0;
-  padding-left: 18px;
-  padding-right: 18px;
-}
-
 /* What the database holds for the scanned badge */
 .rg-details {
   display: grid;
@@ -1865,4 +1837,10 @@ body {
 
 .rg-step > .rg-form-note {
   margin: 14px 0 0;
+}
+
+/* Key warnings sit under the Enroll button, in the open, as on enroll.html */
+#enroll-warnings .en-warning {
+  margin-top: 12px;
+  margin-bottom: 0;
 }
