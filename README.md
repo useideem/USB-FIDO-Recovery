@@ -649,7 +649,7 @@ Asks whichever iShield key is present who it is: the same open get (empty `allow
 ```javascript
 const result = await webauthnIdentify();
 if (result.success && result.authenticatedUser) {
-  location.assign(`https://partner.example/?userid=${encodeURIComponent(result.authenticatedUser)}`);
+  console.log('The key belongs to', result.authenticatedUser);
 }
 ```
 
@@ -788,8 +788,8 @@ Demo-swissbit/
                           create, then a QR into the demo with ?userid=<digits>
   key-enroll.js        -- The discoverable create that puts a phone number on an iShield key, as a
                           function for register.js (the measured options; fido-test.js defaults to them)
-  partner.html/.js     -- Partner hand-off: Identify reads the User ID off an iShield key and opens the
-                          URL in <meta name="partner-url"> with ?userid=<digits> added
+  partner.html/.js     -- Partner page: Identify reads the User ID off an iShield key, shows the account
+                          and moves its balance (+ $500, + $Custom, - $Custom) through the user API
   api/db.js            -- Vercel function: proxy to the user API (/db/*)
   api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
   zsm_app_config.json  -- Ideem application credentials

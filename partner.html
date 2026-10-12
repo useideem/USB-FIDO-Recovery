@@ -3,12 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Identify | Swissbit + Ideem</title>
-  <!-- Where Identify sends the browser once the key has answered: an absolute
-       URL, or a path relative to this page. The User ID read off the key is
-       added to its query string as ?userid=<digits>; a query string already
-       on the URL is kept. Left empty, the page shows the number and stops. -->
-  <meta name="partner-url" content="https://sbit.authconcepts.com:3099/quick-balance.html">
+  <title>Partner | Swissbit + Ideem</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -25,13 +20,13 @@
 
   <main class="card pt-card">
 
-    <!-- Flash message: what the key is doing, and why it failed -->
+    <!-- Flash message: what the key and the database are doing, and why something failed -->
     <div id="flash-status" class="flash" role="status" aria-live="polite"></div>
 
-    <!-- IDENTIFY: one touch, then the partner page opens with the User ID -->
+    <!-- IDENTIFY: one touch, then the account below -->
     <section class="pt-step" aria-labelledby="identify-title">
       <h2 class="ft-section-title" id="identify-title">Identify</h2>
-      <p class="ft-hint">Insert your iShield key, press <b>Identify</b>, then touch the key when the browser asks. Your User ID is read off the key and the partner page opens with it.</p>
+      <p class="ft-hint">Insert your iShield key, press <b>Identify</b>, then touch the key when the browser asks. Your User ID is read off the key and your account appears below.</p>
       <!-- Shown only in desktop Chrome, which cannot read a PIN-less key this way -->
       <p class="en-warning" id="chrome-warning" hidden>
         Desktop Chrome refuses to read a PIN-less key without a credential list, so
@@ -40,13 +35,37 @@
       <button id="identify-btn" type="button" class="btn btn-primary">Identify</button>
     </section>
 
-    <!-- The number the key answered with. Normally the redirect follows at
-         once; this stays on screen only when there is nowhere to send it. -->
-    <section class="pt-result" id="result" aria-live="polite" hidden>
+    <!-- ACCOUNT: the record behind the number, and the three balance moves -->
+    <section class="pt-account" id="account-section" aria-labelledby="account-title" hidden>
+      <h2 class="ft-section-title" id="account-title">Account</h2>
       <dl class="rg-details">
-        <div class="rg-detail"><dt>User ID</dt><dd class="rg-mono" id="result-user"></dd></div>
+        <div class="rg-detail"><dt>Name</dt><dd id="account-name"></dd></div>
+        <div class="rg-detail"><dt>User ID</dt><dd class="rg-mono" id="account-user"></dd></div>
+        <div class="rg-detail"><dt>Balance</dt><dd class="rg-mono" id="account-balance"></dd></div>
       </dl>
-      <p class="en-warning" id="result-note" hidden></p>
+      <p class="en-warning" id="account-note" hidden></p>
+
+      <!-- The two Custom buttons take their amount from here -->
+      <div class="ft-field pt-amount" id="amount-field">
+        <label class="ft-label" for="custom-amount">Custom amount</label>
+        <input id="custom-amount" class="ft-input" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off">
+      </div>
+
+      <!-- Each button is one PATCH /users/:id/balance for the identified user -->
+      <div class="pt-actions" id="actions">
+        <div class="pt-action">
+          <span class="pt-action-label">Partner Engagement Credit</span>
+          <button id="credit-btn" type="button" class="btn pt-btn pt-btn-credit">+ $500</button>
+        </div>
+        <div class="pt-action">
+          <span class="pt-action-label">Add Custom Credit / Cash Out</span>
+          <button id="add-custom-btn" type="button" class="btn pt-btn pt-btn-add">+ $Custom</button>
+        </div>
+        <div class="pt-action">
+          <span class="pt-action-label">Deduct Custom Credit / Buy In</span>
+          <button id="deduct-custom-btn" type="button" class="btn pt-btn pt-btn-deduct">- $Custom</button>
+        </div>
+      </div>
     </section>
 
   </main>

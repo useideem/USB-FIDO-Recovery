@@ -1778,7 +1778,7 @@ body {
 
 .pt-card,
 .pt-card + .footer {
-  max-width: 520px;
+  max-width: 560px;
 }
 
 .pt-step > .ft-hint {
@@ -1789,14 +1789,67 @@ body {
   width: 100%;
 }
 
-/* The number read off the key, left on screen only when there is nowhere to send it */
-.pt-result {
+/* The account the key identified, and the three balance moves under it */
+.pt-account {
   margin-top: 20px;
   padding-top: 16px;
   border-top: 1px solid var(--color-border);
 }
 
-.pt-result .en-warning {
+.pt-account .en-warning {
   margin-top: 14px;
   margin-bottom: 0;
+}
+
+.pt-amount {
+  margin-top: 16px;
+}
+
+.pt-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.pt-action {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.pt-action-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+  text-align: center;
+  line-height: 1.3;
+}
+
+/* Dark ground, light bold figure: the look of the partner's own buttons */
+.pt-btn {
+  width: 100%;
+  padding: 16px 10px;
+  font-size: 1.375rem;
+  font-weight: 800;
+  color: #f5f1e6;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.pt-btn-credit { background: #2e5a46; }
+.pt-btn-add    { background: #1f4e6e; }
+.pt-btn-deduct { background: #7a1f36; }
+
+.pt-btn:hover:not(:disabled) {
+  filter: brightness(1.12);
+  box-shadow: var(--shadow-md);
+}
+
+@media (max-width: 520px) {
+  .pt-actions {
+    grid-template-columns: 1fr;
+  }
 }
