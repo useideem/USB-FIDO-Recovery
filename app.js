@@ -9,8 +9,14 @@
  * and handles screens, flash messages, popups, and event listeners.
  *
  * FLOW:
- *   1. Trust Device  -- webauthnEnroll() then enroll() with Passkeys+
- *   2. Login         -- authenticate() with Passkeys+ (no USB key needed)
+ *   1. Trust Device  -- webauthnEnroll() then enroll() with Passkeys+, then
+ *                       the simulated SNA number check (sna.js) and its
+ *                       four indicators: iShield, Number Verified, Device
+ *                       Bound, Passkey
+ *   2. Login         -- authenticate() with Passkeys+ (no USB key needed).
+ *                       An unbound device (an attendee arriving from the
+ *                       booth QR) first gets the iShield touch, enroll(),
+ *                       and the same SNA check
  *   3. Actions       -- step-up authenticate() per protected action
  *   3b. P2P Exchange -- after the step-up, a QR code another attendee scans;
  *                       they confirm, verify with their passkey, and both
@@ -40,6 +46,15 @@ import {
   authenticate,
   resetClient
 } from './umfa.js';
+
+import {
+  verifyNumber,
+  isNumberVerified,
+  getNumberVerification,
+  setNumberVerified,
+  SNA_STEPS,
+  SNA_SCENARIOS
+} from './sna.js';
 
 // ---------------------------------------------------------------------------
 // Shared UI helpers
@@ -642,11 +657,216 @@ function formatPhone(value) {
 }
 
 // ---------------------------------------------------------------------------
+// SNA — simulated Silent Network Authentication (sna.js)
+//
+// Runs once per device for a User ID: after the ZSM enrollment on an unbound
+// device, or on the first login of a device bound before this existed, and
+// always before the first ACTIONS screen. An attendee binding a phone sees
+// the iShield touch, the passkey enrollment, the number check, then the four
+// indicators. The marker sna.js leaves is what later logins check, so a
+// cancelled check is asked for again next time and nothing else is lost.
+// ---------------------------------------------------------------------------
+const SNA_SCENARIO_KEY = 'snaScenario';
+
+/** What the screen says when a scenario fails, by the reason sna.js gives. */
+const SNA_FAILURE_MESSAGES = {
+  no_match: 'Your network says this number is not on this device.',
+  network_unsupported: 'Your network could not verify the number silently. Turn on cellular data and try again.'
+};
+
+/** The indicator rows, in order, with what each reads when lit and when not. */
+const SNA_INDICATORS = [
+  { id: 'ishield', on: 'validated', off: 'not on this device' },
+  { id: 'number', on: 'verified', off: 'not verified' },
+  { id: 'device', on: 'bound', off: 'not bound' },
+  { id: 'passkey', on: 'enrolled', off: 'not enrolled' }
+];
+
+let snaResolve = null;     // settles the ensureNumberVerified() promise
+let snaAbort = null;       // cancels a check in progress
+let snaStepRows = [];      // { row, detail } per SNA_STEPS entry, for the step list
+let snaShownCheckId = null;
+
+/** Presenter-only: the ?sna= scenario, consumed by the one run that reads it. */
+function takeSnaScenario() {
+  const scenario = sessionStorage.getItem(SNA_SCENARIO_KEY);
+  sessionStorage.removeItem(SNA_SCENARIO_KEY);
+  return SNA_SCENARIOS.includes(scenario) ? scenario : 'success';
+}
+
+/**
+ * The gate every login path passes before STATE.loginID is set. Resolves
+ * true at once when this device already verified the user's number;
+ * otherwise puts the SNA screen up and resolves true after a successful
+ * check and Continue, false on Cancel.
+ */
+function ensureNumberVerified(user) {
+  if (isNumberVerified(user)) return Promise.resolve(true);
+  return new Promise((resolve) => {
+    snaResolve = resolve;
+    renderSna({ user, phase: 'ready' });
+    showScreen('SNA');
+  });
+}
+
+function finishSna(verified) {
+  if (snaAbort) {
+    snaAbort.abort();
+    snaAbort = null;
+  }
+  const resolve = snaResolve;
+  snaResolve = null;
+  if (resolve) resolve(verified);
+}
+
+/** "Verify my number": plays the simulation and records a match. */
+async function runSnaCheck() {
+  const user = getUsername();
+  if (!user || !snaResolve || snaAbort) return;
+  renderSna({ user, phase: 'running' });
+  snaAbort = new AbortController();
+  try {
+    const result = await verifyNumber(user, {
+      scenario: takeSnaScenario(),
+      signal: snaAbort.signal,
+      onStep: renderSnaStep
+    });
+    if (result.match) {
+      setNumberVerified(user, result);
+      await renderSna({ user, phase: 'verified' });
+    } else {
+      renderSna({ user, phase: 'failed', message: SNA_FAILURE_MESSAGES[result.reason] || 'Number not verified.' });
+    }
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    console.error('[sna] check failed:', err);
+    renderSna({ user, phase: 'failed', message: 'Verification failed. Try again.' });
+  } finally {
+    snaAbort = null;
+  }
+}
+
+/**
+ * Draws the SNA screen for a phase: 'ready' (the invitation), 'running'
+ * (the steps playing), 'verified' (steps done, indicators in, Continue) or
+ * 'failed' (the failed step stays red, Try again).
+ */
+async function renderSna({ user, phase, message = '' }) {
+  const $ = (id) => document.getElementById(id);
+  const verified = phase === 'verified';
+  const failed = phase === 'failed';
+
+  $('sna-number').textContent = formatPhone(user);
+  $('sna-title').textContent = verified ? 'Number verified' : 'Verifying your phone number';
+  $('sna-subtitle').textContent =
+    verified ? 'Your mobile number was verified silently over your network.' :
+    phase === 'running' ? 'This takes a few seconds and needs nothing from you.' :
+    "We'll verify your mobile number silently over your network.";
+
+  if (phase === 'ready' || phase === 'running') buildSnaSteps();
+  $('sna-steps').hidden = phase === 'ready';
+
+  const status = $('sna-status');
+  status.textContent = verified ? 'Verified' : message;
+  status.className = 'flash' + (verified ? ' success' : failed ? ' failure' : '');
+
+  const verify = $('sna-verify');
+  verify.hidden = !(phase === 'ready' || failed);
+  verify.textContent = failed ? 'Try again' : 'Verify my number';
+  $('sna-continue').hidden = !verified;
+  $('sna-cancel').hidden = verified;
+
+  $('sna-indicators').hidden = !verified;
+  if (verified) {
+    renderSnaIndicators(await snaIndicatorStates(user));
+    $('sna-continue').focus();
+  }
+}
+
+/** One pending row per SNA_STEPS entry. */
+function buildSnaSteps() {
+  snaStepRows = SNA_STEPS.map((step) => {
+    const row = document.createElement('li');
+    row.className = 'sna-step';
+    const mark = document.createElement('span');
+    mark.className = 'sna-step-mark';
+    const label = document.createElement('span');
+    label.className = 'sna-step-label';
+    label.textContent = step.label;
+    const detail = document.createElement('span');
+    detail.className = 'sna-step-detail';
+    detail.textContent = step.detail;
+    label.appendChild(detail);
+    row.append(mark, label);
+    return { row, detail };
+  });
+  document.getElementById('sna-steps').replaceChildren(...snaStepRows.map((entry) => entry.row));
+}
+
+/** verifyNumber's onStep: colours the row as the step starts and ends. */
+function renderSnaStep(index, step, status) {
+  const entry = snaStepRows[index];
+  if (!entry) return;
+  entry.row.className = `sna-step ${status}`;
+  if (status === 'failed' && step.failDetail) entry.detail.textContent = step.failDetail;
+}
+
+/** What the four indicators read for this user on this device. */
+async function snaIndicatorStates(user) {
+  let device = false;
+  let passkey = false;
+  try {
+    await initializeZSMClient(user);
+    const status = await checkAllEnrollment(user);
+    if (status && !(status instanceof Error)) {
+      device = status.hasZSMCred === true || !!status.zsmCredID;
+      passkey = status.hasRemotePasskey === true;
+    }
+  } catch (_) {}
+  return { ishield: hasLocalEnrollmentMarker(user), number: isNumberVerified(user), device, passkey };
+}
+
+function renderSnaIndicators(states) {
+  for (const { id, on, off } of SNA_INDICATORS) {
+    const lit = states[id] === true;
+    document.getElementById(`sna-ind-${id}`).className = 'sna-indicator ' + (lit ? 'on' : 'off');
+    document.getElementById(`sna-ind-${id}-state`).textContent = lit ? on : off;
+  }
+}
+
+/**
+ * The Silent Network Auth block on ACTIONS: the check this device verified
+ * the number with, or hidden when there is none. Left alone while the same
+ * check is already up, so updateUI does not fold the details every time.
+ */
+function updateSnaDisplay(record) {
+  const PREVIEW_LEN = 15;
+  const container = document.getElementById('sna-challenge-display');
+  if (!container) return;
+  const checkId = record?.checkId || '';
+  if (checkId === (snaShownCheckId || '')) {
+    container.hidden = !checkId;
+    return;
+  }
+  snaShownCheckId = checkId || null;
+  const code = record?.code || '';
+  const preview = (value) => value.substring(0, PREVIEW_LEN) + (value.length > PREVIEW_LEN ? '...' : '');
+  document.getElementById('sna-check-preview').textContent = checkId ? preview(checkId) : '--';
+  document.getElementById('sna-check-full').textContent = checkId;
+  document.getElementById('sna-code-preview').textContent = code ? preview(code) : '--';
+  document.getElementById('sna-code-full').textContent = code;
+  container.hidden = !checkId;
+  document.getElementById('sna-check-details')?.removeAttribute('open');
+  document.getElementById('sna-code-details')?.removeAttribute('open');
+}
+
+// ---------------------------------------------------------------------------
 // showScreen — simple screen switcher
 // ---------------------------------------------------------------------------
 const SCREEN_ANNOUNCEMENTS = {
   'SETUP': 'Setup screen. Enter your user ID and trust this device.',
   'LOGIN': 'Login screen. Authenticate to continue.',
+  'SNA': 'Phone number verification screen. Tap Verify my number.',
   'ACTIONS': 'Actions screen. You are logged in.',
   'EXCHANGE': 'P2P Contact Exchange screen.'
 };
@@ -663,17 +883,19 @@ function showScreen(screenId) {
   }
 
   // Username field is readonly once logged in (ACTIONS, or EXCHANGE after the
-  // responder has verified), and on LOGIN when "New" is off (existing user).
-  // A responder who has only scanned so far can still correct the User ID.
+  // responder has verified), on SNA (the number being verified is the one on
+  // screen), and on LOGIN when "New" is off (existing user). A responder who
+  // has only scanned so far can still correct the User ID.
   const loggedInScreen = screenId === 'ACTIONS' || (screenId === 'EXCHANGE' && !!STATE.loginID);
   const usernameEl = document.getElementById('username');
   const isNew = document.getElementById('new-user-toggle').checked;
-  usernameEl.readOnly = loggedInScreen || (screenId === 'LOGIN' && !isNew);
+  usernameEl.readOnly = loggedInScreen || screenId === 'SNA' || (screenId === 'LOGIN' && !isNew);
 
-  // Hide "New" toggle once logged in, and on EXCHANGE throughout: whoever
-  // scanned a P2P QR has a key and takes the login path.
+  // Hide "New" toggle once logged in, on EXCHANGE throughout (whoever
+  // scanned a P2P QR has a key and takes the login path), and on SNA, which
+  // is mid-ceremony.
   const newToggle = document.getElementById('new-user-toggle-container');
-  if (newToggle) newToggle.hidden = loggedInScreen || screenId === 'EXCHANGE';
+  if (newToggle) newToggle.hidden = loggedInScreen || screenId === 'EXCHANGE' || screenId === 'SNA';
 
   // Announce screen change to screen readers
   const announcer = document.getElementById('screen-announcer');
@@ -714,7 +936,11 @@ async function updateUI() {
     else pill.classList.add('pill-neutral');
   }
 
+  // The four indicators the enrollment ends on: iShield (local marker),
+  // Number Verified (the SNA marker), Device Bound (the ZSM credential),
+  // Passkey (the Passkeys+ credential).
   setPill(document.getElementById('ishield-status'), !user ? '--' : (hasIShield ? 'true' : 'unknown'));
+  setPill(document.getElementById('number-status'), !user ? '--' : (isNumberVerified(user) ? 'true' : 'false'));
   setPill(document.getElementById('zsm-status'), !user ? '--' : (hasZSM ? 'true' : 'false'));
   setPill(document.getElementById('passkey-status'), !user ? '--' : (hasPasskey ? 'true' : 'false'));
 
@@ -755,6 +981,9 @@ async function updateUI() {
     newToggleEl.disabled = false;
   }
 
+  // The Silent Network Auth block on ACTIONS follows the stored check
+  updateSnaDisplay(STATE.loginID ? getNumberVerification(STATE.loginID) : null);
+
   // Determine which screen to show — driven by "New" toggle, not server-side passkey
   const isNewUser = newToggleEl.checked;
   if (STATE.loginID) {
@@ -771,6 +1000,10 @@ async function updateUI() {
     }
     // Load the account once per login; the money actions re-read it themselves.
     if (accountFor !== STATE.loginID) await refreshAccount(STATE.loginID);
+  } else if (snaResolve) {
+    // A number check is waiting for its Verify or Continue: nothing else
+    // moves the screen until it settles.
+    showScreen('SNA');
   } else if (exchange.active) {
     // Scanned a P2P QR and not verified yet: the confirm screen stays up
     // whatever the toggles say.
@@ -823,6 +1056,13 @@ async function trustDevice() {
 
     if (!result || result === false || result instanceof Error) {
       showFlash('flash-status', 'ZSM enrollment failed', 'failure');
+      await updateUI();
+      return;
+    }
+
+    // Step 3: the simulated SNA number check, ending on the four indicators
+    if (!(await ensureNumberVerified(user))) {
+      showFlash('flash-status', 'Number not verified. Log in to try again.', 'failure', 4000);
       await updateUI();
       return;
     }
@@ -920,6 +1160,13 @@ async function login(btn = document.getElementById('login-btn')) {
         createdAt: new Date().toISOString()
       }));
 
+      // Step 4: the simulated SNA number check, ending on the four indicators
+      if (!(await ensureNumberVerified(user))) {
+        showFlash('flash-status', 'Number not verified. Log in to try again.', 'failure', 4000);
+        await updateUI();
+        return;
+      }
+
       STATE.loginID = user;
       updateAuthIcons({ ishield: true, zsm: true, passkeys: usePasskeys });
       showFlash('flash-status', 'Device bound successfully', 'success');
@@ -986,6 +1233,11 @@ async function login(btn = document.getElementById('login-btn')) {
         showFlash('flash-status', 'Passkeys+ enrollment failed', 'failure');
         return;
       }
+      // A device bound before the number check existed gets it here
+      if (!(await ensureNumberVerified(user))) {
+        await updateUI();
+        return;
+      }
       STATE.loginID = user;
       updateAuthIcons({ zsm: true, passkeys: true });
       showFlash('flash-status', 'Passkeys+ enrolled successfully', 'success');
@@ -1002,6 +1254,13 @@ async function login(btn = document.getElementById('login-btn')) {
 
     if (authResult.challengeData) {
       updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
+    }
+
+    // A device bound before the number check existed gets it here; one
+    // that has it answers at once.
+    if (!(await ensureNumberVerified(user))) {
+      await updateUI();
+      return;
     }
 
     STATE.loginID = user;
@@ -1143,6 +1402,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Confirm on the exchange screen: the responder's passkey verification
   document.getElementById('exchange-confirm').addEventListener('click', () => confirmExchange());
 
+  // The SNA screen: Verify plays the simulated check, Continue and Cancel
+  // settle the gate the login path is waiting on
+  document.getElementById('sna-verify').addEventListener('click', () => runSnaCheck());
+  document.getElementById('sna-continue').addEventListener('click', () => finishSna(true));
+  document.getElementById('sna-cancel').addEventListener('click', () => finishSna(false));
+
   // Done / Cancel on the exchange screen: back to the actions when logged
   // in, otherwise to the login screen
   document.getElementById('exchange-done').addEventListener('click', async () => {
@@ -1178,10 +1443,11 @@ document.addEventListener('DOMContentLoaded', () => {
     // so they are an existing user on a new device: New OFF routes them to the
     // login path, which READS the key and checks its user handle against this
     // field. New ON would run the create path instead and write a second
-    // credential to the same key for the same number.
+    // credential to the same key for the same number. Passkeys is left as
+    // the attendee last set it (on by default), so the binding enrolls a
+    // Passkeys+ passkey too and the Passkey indicator after the number
+    // check lights.
     document.getElementById('new-user-toggle').checked = false;
-    document.getElementById('use-passkeys-toggle').checked = false;
-    setPasskeysToggle(urlUserId, false);
   }
 
   // ?exchange= is what another attendee's P2P QR carries. The code goes to
@@ -1191,6 +1457,17 @@ document.addEventListener('DOMContentLoaded', () => {
   if (urlExchange) {
     setPendingExchange(urlExchange.trim().toUpperCase());
     urlParams.delete('exchange');
+  }
+
+  // ?sna= is for the presenter: nomatch or unsupported plays that IDlayr
+  // outcome on the next number check, once, and the default success returns.
+  const urlSna = urlParams.get('sna');
+  if (urlSna) {
+    sessionStorage.setItem(SNA_SCENARIO_KEY, urlSna.trim().toLowerCase());
+    urlParams.delete('sna');
+  }
+
+  if (urlExchange || urlSna) {
     const query = urlParams.toString();
     history.replaceState(null, '', location.pathname + (query ? `?${query}` : ''));
   }
@@ -1218,7 +1495,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('username').addEventListener('click', (e) => {
     if (!e.target.readOnly) return;
     showFlash('flash-status',
-      STATE.loginID ? 'Reset Device before changing User ID' : 'Switch New on to change the User ID',
+      STATE.loginID ? 'Reset Device before changing User ID' :
+      snaResolve ? 'Cancel the number check to change the User ID' :
+      'Switch New on to change the User ID',
       'failure', 3000);
   });
 

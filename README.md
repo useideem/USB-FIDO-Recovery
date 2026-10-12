@@ -29,6 +29,10 @@ The client-side share is stored in the browser's **IndexedDB** and bound with **
 
 **Passkeys+** extends ZSM with FIDO2 passkey credentials. When enabled, authentication requires both the ZSM secret share AND a passkey challenge (biometric or security key), giving you two distinct factors in a single user gesture. 
 
+### What is Silent Network Authentication?
+
+**Silent Network Authentication (SNA)** verifies that a phone number belongs to the device in hand by asking the mobile network, with nothing for the user to type: the device opens a one-time URL over cellular data, the carrier recognises the SIM and redirects back with a code, and the backend exchanges the code for a match verdict. The demo plays a **simulation** of that flow, modelled on [IDlayr's Secure SNA walkthrough](https://secure-sna-demo.idlayr.com), in `sna.js`. It makes no network request; a real integration replaces the inside of `verifyNumber()` with calls to a backend that holds the IDlayr key.
+
 ### Authentication Flow: Three Phases
 
 The system operates in three phases:
@@ -37,7 +41,9 @@ The system operates in three phases:
 Phase 1: TRUST DEVICE
   User enrolls a new device. Creates the ZSM secret share (IndexedDB)
   and registers a Passkeys+ credential (FIDO2 passkey) with the server.
-  This is a one-time operation per device.
+  The demo then runs the simulated Silent Network Authentication check
+  (sna.js) and ends on four indicators: iShield, Number Verified,
+  Device Bound, Passkey. This is a one-time operation per device.
 
 Phase 2: LOGIN
   User authenticates on a trusted device. The ZSM share in IndexedDB
@@ -750,9 +756,10 @@ Computes SHA-256 hash of a string, returns hex.
 Demo-swissbit/
   ishield.js           -- Raw WebAuthn for iShield USB keys (zero SDK deps)
   umfa.js              -- ZSM + Passkeys+ integration (wraps @ideem SDKs)
+  sna.js               -- Simulated Silent Network Authentication (no DOM, no network)
   app.js               -- Demo UI orchestration (wires modules to DOM)
   state.js             -- Simple reactive state class (demo utility, not for production)
-  index.html           -- Single-page HTML with four screens
+  index.html           -- Single-page HTML with five screens
   api/db.js            -- Vercel function: proxy to the user API (/db/*)
   api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
   zsm_app_config.json  -- Ideem application credentials
@@ -772,6 +779,7 @@ Demo-swissbit/
 app.js
   |-- imports --> ishield.js   (webauthnEnroll, webauthnAuthenticate, hasStoredCredential, ...)
   |-- imports --> umfa.js      (initializeZSMClient, checkAllEnrollment, enroll, authenticate, ...)
+  |-- imports --> sna.js       (verifyNumber, isNumberVerified, setNumberVerified, SNA_STEPS, ...)
                     |
                     |-- imports --> @ideem/zsm-client-sdk  (UMFAClient)
                     |-- imports --> @ideem/plugins.passkeys-plus  (side-effect)

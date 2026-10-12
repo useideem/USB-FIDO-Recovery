@@ -136,6 +136,38 @@
           <pre class="challenge-full" id="signed-challenge-full"></pre>
         </details>
       </div>
+      <!-- The simulated SNA check this device verified the number with:
+           the check ID the backend would have created and the one-time
+           code the network's redirect would have carried. -->
+      <div class="challenge-display" id="sna-challenge-display" hidden>
+        <div class="challenge-section-header">
+          <span class="challenge-section-label">Silent Network Auth</span>
+          <svg class="sna-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+            <rect x="3" y="14" width="3" height="7" rx="1" fill="currentColor"></rect>
+            <rect x="8.5" y="10" width="3" height="11" rx="1" fill="currentColor"></rect>
+            <rect x="14" y="6" width="3" height="15" rx="1" fill="currentColor"></rect>
+            <rect x="19.5" y="2" width="3" height="19" rx="1" fill="currentColor" opacity="0.35"></rect>
+          </svg>
+        </div>
+        <details id="sna-check-details">
+          <summary>Check ID: <span id="sna-check-preview" class="challenge-value">--</span><button class="btn-copy" aria-label="Copy value" onclick="event.stopPropagation()">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+  </svg>
+</button></summary>
+          <pre class="challenge-full" id="sna-check-full"></pre>
+        </details>
+        <details id="sna-code-details">
+          <summary>Code: <span id="sna-code-preview" class="challenge-value">--</span><button class="btn-copy" aria-label="Copy value" onclick="event.stopPropagation()">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+  </svg>
+</button></summary>
+          <pre class="challenge-full" id="sna-code-full"></pre>
+        </details>
+      </div>
 
       <button id="logout-btn" class="btn btn-secondary">Log Out</button>
     </div>
@@ -162,10 +194,37 @@
       <button id="exchange-done" class="btn btn-primary">Done</button>
     </div>
 
-    <!-- Status pills — always visible -->
+    <!-- SNA screen — simulated Silent Network Authentication, run once per
+         device after the ZSM enrollment and before the first ACTIONS screen.
+         app.js draws the step list from SNA_STEPS in sna.js, and the
+         indicator list is what the attendee ends on. -->
+    <div class="screen" id="SNA">
+      <p class="sna-title" id="sna-title">Verifying your phone number</p>
+      <p class="sna-subtitle" id="sna-subtitle">We'll verify your mobile number silently over your network.</p>
+      <div class="sna-number">
+        <span class="sna-number-label">Mobile number</span>
+        <b id="sna-number">--</b>
+      </div>
+      <ol class="sna-steps" id="sna-steps" hidden></ol>
+      <div id="sna-status" class="flash" role="status" aria-live="polite"></div>
+      <ul class="sna-indicators" id="sna-indicators" hidden>
+        <li class="sna-indicator" id="sna-ind-ishield"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">iShield</span><span class="sna-indicator-state" id="sna-ind-ishield-state"></span></li>
+        <li class="sna-indicator" id="sna-ind-number"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Number Verified</span><span class="sna-indicator-state" id="sna-ind-number-state"></span></li>
+        <li class="sna-indicator" id="sna-ind-device"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Device Bound</span><span class="sna-indicator-state" id="sna-ind-device-state"></span></li>
+        <li class="sna-indicator" id="sna-ind-passkey"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Passkey</span><span class="sna-indicator-state" id="sna-ind-passkey-state"></span></li>
+      </ul>
+      <p class="sna-note">Simulated Silent Network Authentication, modelled on IDlayr's Secure SNA. No network request is made.</p>
+      <button id="sna-verify" class="btn btn-primary">Verify my number</button>
+      <button id="sna-continue" class="btn btn-primary" hidden>Continue</button>
+      <button id="sna-cancel" class="btn btn-secondary">Cancel</button>
+    </div>
+
+    <!-- Status pills — always visible. The four indicators the enrollment
+         ends on, in that order, then the Passkeys+ state that drives Suspend. -->
     <div class="status-pills">
       <span class="pill">iShield: <b id="ishield-status">--</b></span>
-      <span class="pill">ZSM: <b id="zsm-status">--</b></span>
+      <span class="pill">Number Verified: <b id="number-status">--</b></span>
+      <span class="pill">Device Bound: <b id="zsm-status">--</b></span>
       <span class="pill">Passkey: <b id="passkey-status">--</b></span>
       <span class="pill">Passkeys+: <b id="passkeys-plus-status">--</b></span>
     </div>

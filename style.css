@@ -643,6 +643,232 @@ body {
   color: var(--color-warning);
 }
 
+/* ===== Silent Network Authentication (simulated, sna.js) ===== */
+
+.sna-title {
+  text-align: center;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-primary);
+  margin: 0 0 6px;
+}
+
+.sna-subtitle {
+  text-align: center;
+  font-size: 0.8125rem;
+  color: var(--color-text-secondary);
+  margin: 0 0 14px;
+}
+
+.sna-number {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-warm);
+}
+
+.sna-number-label {
+  font-size: 0.75rem;
+  color: var(--color-text-secondary);
+}
+
+.sna-number b {
+  font-size: 0.9375rem;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The step list: a ring per step that spins while the step is active, fills
+   green when it is done and red when it is the one a scenario fails on. */
+.sna-steps {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.sna-steps[hidden] {
+  display: none;
+}
+
+.sna-step {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  column-gap: 10px;
+  align-items: start;
+  padding: 6px 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-tertiary);
+  transition: color 0.2s ease;
+}
+
+.sna-step-mark {
+  position: relative;
+  width: 16px;
+  height: 16px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border-strong);
+  transition: border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.sna-step.active,
+.sna-step.done {
+  color: var(--color-text);
+}
+
+.sna-step.active .sna-step-mark {
+  border-color: var(--color-accent);
+  border-top-color: transparent;
+  animation: btn-spin 0.7s linear infinite;
+}
+
+.sna-step.done .sna-step-mark {
+  border-color: var(--color-success);
+  background: var(--color-success);
+}
+
+.sna-step.done .sna-step-mark::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 0;
+  width: 4px;
+  height: 8px;
+  border: solid var(--color-white);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.sna-step.failed {
+  color: var(--color-danger);
+}
+
+.sna-step.failed .sna-step-mark {
+  border-color: var(--color-danger);
+  background: var(--color-danger);
+}
+
+.sna-step.failed .sna-step-mark::after {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 5px;
+  width: 8px;
+  height: 2px;
+  background: var(--color-white);
+}
+
+.sna-step-detail {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+  word-break: break-word;
+}
+
+.sna-step.active .sna-step-detail,
+.sna-step.done .sna-step-detail {
+  color: var(--color-text-secondary);
+}
+
+.sna-step.failed .sna-step-detail {
+  color: var(--color-danger);
+}
+
+/* The four indicators the check ends on, one row each, fading in in turn. */
+.sna-indicators {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.sna-indicators[hidden] {
+  display: none;
+}
+
+.sna-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-warm);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--color-text-tertiary);
+  opacity: 0;
+  animation: fadeIn 0.3s ease-out forwards;
+}
+
+.sna-indicator:nth-child(2) { animation-delay: 0.15s; }
+.sna-indicator:nth-child(3) { animation-delay: 0.3s; }
+.sna-indicator:nth-child(4) { animation-delay: 0.45s; }
+
+.sna-indicator.on {
+  border-color: var(--color-success);
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.sna-indicator-mark {
+  position: relative;
+  flex: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border-strong);
+}
+
+.sna-indicator.on .sna-indicator-mark {
+  border-color: var(--color-success);
+  background: var(--color-success);
+}
+
+.sna-indicator.on .sna-indicator-mark::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 4px;
+  height: 8px;
+  border: solid var(--color-white);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+.sna-indicator-state {
+  margin-left: auto;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  opacity: 0.8;
+}
+
+.sna-note {
+  margin: 0 0 4px;
+  text-align: center;
+  font-size: 0.6875rem;
+  color: var(--color-text-tertiary);
+}
+
+/* The signal glyph on the Silent Network Auth block of ACTIONS. */
+.sna-icon {
+  width: 18px;
+  height: 18px;
+  color: var(--color-primary-muted);
+  opacity: 0.8;
+}
+
 /* Action-status: always reserves space, no layout shift */
 #action-status {
   padding: 2px 12px;
@@ -1074,8 +1300,8 @@ body {
     padding: 4px 8px;
   }
 
-  /* Force Passkeys+ pill onto its own row */
-  .pill:nth-child(4) {
+  /* Force the Passkeys+ pill, the fifth, onto its own row */
+  .pill:nth-child(5) {
     flex-basis: 100%;
     text-align: center;
   }
