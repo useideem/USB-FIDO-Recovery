@@ -48,7 +48,9 @@ Phase 1: TRUST DEVICE
   registration page (register.html): the laptop camera reads the badge
   QR, the user database answers with their name, phone and email, and a
   second QR opens the demo on their phone with the number already in the
-  User ID field and New switched on, ready for Trust Device.
+  User ID field and New switched on, ready for Trust Device. A badge the
+  database does not know opens a short form instead (name, phone, email);
+  Register adds the attendee and then shows the same QR.
 
 Phase 2: LOGIN
   User authenticates on a trusted device. The ZSM share in IndexedDB

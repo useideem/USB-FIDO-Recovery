@@ -50,6 +50,35 @@
       </details>
     </section>
 
+    <!-- NEW ATTENDEE: the badge ID is not in the database, so take the details
+         here and add them. Shown in place of the details section. -->
+    <section class="rg-step rg-new" id="new-attendee-section" aria-labelledby="new-attendee-title" hidden>
+      <h2 class="ft-section-title" id="new-attendee-title">Step 2: Register this badge</h2>
+      <p class="ft-hint">Nobody in the user database has badge ID <b id="new-attendee-id" class="rg-mono"></b>. Fill in the details and press Register to add them.</p>
+      <form id="new-attendee-form" class="rg-form" novalidate>
+        <div class="en-row">
+          <div class="ft-field">
+            <label class="ft-label" for="new-first-name">First name</label>
+            <input type="text" id="new-first-name" class="ft-input" autocomplete="given-name" spellcheck="false" required>
+          </div>
+          <div class="ft-field">
+            <label class="ft-label" for="new-last-name">Last name</label>
+            <input type="text" id="new-last-name" class="ft-input" autocomplete="family-name" spellcheck="false" required>
+          </div>
+        </div>
+        <div class="ft-field">
+          <label class="ft-label" for="new-phone">Phone number</label>
+          <input type="tel" id="new-phone" class="ft-input" placeholder="9135551234" autocomplete="tel" inputmode="numeric" required>
+        </div>
+        <div class="ft-field">
+          <label class="ft-label" for="new-email">Email</label>
+          <input type="email" id="new-email" class="ft-input" autocomplete="email" spellcheck="false">
+        </div>
+        <button id="new-attendee-btn" type="submit" class="btn btn-primary">Register</button>
+      </form>
+      <p class="ft-hint rg-form-note">The phone number is stored as digits only; it is what the demo uses as the User ID.</p>
+    </section>
+
     <!-- ATTENDEE: what the user database holds for the scanned ID -->
     <section class="rg-step rg-attendee" id="attendee-section" aria-labelledby="attendee-title" hidden>
       <h2 class="ft-section-title" id="attendee-title">Step 2: Your details</h2>
