@@ -564,7 +564,7 @@ body {
   margin: 0 0 14px;
 }
 
-/* Same ground and quiet zone as the booth QR: a camera needs the white
+/* Same ground and quiet zone as the registration QR: a camera needs the white
    border to find the code whatever the card around it does. */
 .exchange-qr {
   text-align: center;
@@ -1598,30 +1598,12 @@ body {
   }
 }
 
-/* ===== Enrollment Page (enroll.html) ===== */
-
-.en-card,
-.en-card + .footer {
-  max-width: 520px;
-}
+/* ===== Key enrollment and QR (register.html; the en- classes came from the retired booth page enroll.html) ===== */
 
 .en-row {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: 0 14px;
-}
-
-.en-card .ft-field {
-  margin-bottom: 16px;
-}
-
-.en-card .btn-primary {
-  width: 100%;
-  margin-top: 4px;
-}
-
-.en-note {
-  margin-top: 14px;
 }
 
 .en-warning {
@@ -1633,59 +1615,6 @@ body {
   color: #92400e;
   font-size: 0.75rem;
   line-height: 1.45;
-}
-
-#result-warnings .en-warning {
-  margin-top: 12px;
-  margin-bottom: 0;
-}
-
-/* The collapsed envelope holding everything that is not the QR code. Its
-   summary doubles as the result headline, so it reads as a section title. */
-.en-envelope-summary {
-  font-size: 0.8125rem;
-  font-weight: 700;
-  color: var(--color-primary);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  cursor: pointer;
-  list-style: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.en-envelope-summary::-webkit-details-marker {
-  display: none;              /* Safari draws its own triangle otherwise */
-}
-
-.en-envelope-summary::before {
-  content: "";
-  width: 0;
-  height: 0;
-  border-left: 5px solid currentColor;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  transition: transform 0.15s ease;
-}
-
-.en-envelope[open] > .en-envelope-summary::before {
-  transform: rotate(90deg);
-}
-
-.en-envelope-summary:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-}
-
-.en-envelope > #result-block {
-  margin-top: 14px;
-}
-
-.en-envelope-section {
-  margin-top: 20px;
-  padding-top: 16px;
-  border-top: 1px solid var(--color-border);
 }
 
 /* Scan-to-open QR. White ground and a quiet zone are what a camera needs,
@@ -1839,7 +1768,7 @@ body {
   margin: 14px 0 0;
 }
 
-/* Key warnings sit under the Enroll button, in the open, as on enroll.html */
+/* Key warnings sit under the Enroll button, in the open */
 #enroll-warnings .en-warning {
   margin-top: 12px;
   margin-bottom: 0;

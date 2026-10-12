@@ -74,7 +74,7 @@ changes nothing. Send every field.
 
 **Phone numbers are not unique.** Two POSTs with the same number produce two
 records with different `userId`s. Nothing on the server prevents it, so
-`enroll.js` looks the number up first and PUTs when it already exists.
+`saveAttendee` in `register.js` looks the number up first and PUTs when it already exists.
 
 **There is no authentication.** No key, no token, no session. Anyone who knows
 the URL can read, edit and delete every record, `balance` included. Fine for a

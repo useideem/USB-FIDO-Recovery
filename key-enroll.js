@@ -8,7 +8,7 @@
  * after a touch -- no PIN, no account picker, nothing typed.
  *
  * THE OPTIONS ARE THE MEASURED ONES (docs/ishield-pinless-discoverable.md),
- * the same ones enroll.js (the booth page) builds inline and fido-test.js
+ * the ones the retired booth page (enroll.js) built inline and fido-test.js
  * (the key tester) defaults to:
  *   - residentKey: 'required'            the key must store the credential and
  *                                        the user handle, or an empty-list get
@@ -30,28 +30,29 @@
  *   - attestation: 'none'                nothing here checks a metadata
  *                                        statement, so don't ask for one
  *
- * enroll.js keeps its own inline copy of these options because that page was
- * measured as it stands; a change here must be made there too.
+ * This is the only copy of these options in the repo since the booth page
+ * was retired (2026-10-12) in favour of register.html; fido-test.js has its
+ * own defaults for the tester's controls.
  *
  * RUN THE CREATE IN SAFARI ON A MAC. Desktop Chrome refuses to create a
  * discoverable credential until the key has a PIN, and once the key has a
  * PIN every retrieval device demands it -- which kills the demo. detectBrowser
  * below is how a page finds out it is in desktop Chrome and says so.
  *
- * STORAGE: localStorage 'ishield_enrollments', the list enroll.js keeps too
- * (same key, same record shape), so a key enrolled on either page shows in
- * the booth page's table and is excluded from a second create for the same
- * number. Clearing it removes nothing from any key.
+ * STORAGE: localStorage 'ishield_enrollments', one record per credential
+ * written from this browser, so a second create for the same number on the
+ * same key is excluded. The retired booth page wrote the same list, so its
+ * records still count. Clearing it removes nothing from any key.
  */
 
 import { base64urlToBuffer, bufferToBase64url } from './ishield.js';
 import { CRED_PROTECT_LEVELS, parseAuthenticatorData, checkCeremony } from './webauthn-util.js';
 
 // ---------------------------------------------------------------------------
-// Constants (as enroll.js)
+// Constants
 // ---------------------------------------------------------------------------
 
-/** localStorage key holding the array of enrollment records; shared with enroll.js. */
+/** localStorage key holding the array of enrollment records. */
 export const STORAGE_KEY = 'ishield_enrollments';
 
 /** How long the browser waits for a key touch before failing. */

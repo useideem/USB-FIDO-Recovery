@@ -41,7 +41,7 @@ const packages = [
     ]
   },
   {
-    // QR code generator for enroll.js -- turns the enrolled phone number into a
+    // QR code generator for register.js and app.js -- turns the enrolled phone number into a
     // link the attendee's own phone can scan. ESM, so the page imports
     // ./vendor/qrcode-generator/dist/qrcode.mjs directly.
     name: 'qrcode-generator',

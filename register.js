@@ -7,8 +7,8 @@
  * which the user API resolves to a record (GET /users/conf/:confNumber, see
  * docs/user-api.md section 3b): first name, last name, phone, email. Those go
  * on screen. Enroll iShield Key then writes the phone number, as bare digits,
- * onto the inserted key as a discoverable credential (key-enroll.js: the same
- * create as the booth page and the key tester), and only then does a second
+ * onto the inserted key as a discoverable credential (key-enroll.js: the
+ * measured create the key tester defaults to), and only then does a second
  * QR code appear, pointing at the demo with ?userid=<digits>. The attendee
  * scans that with their phone, lands on the LOGIN screen with the number in
  * the User ID field, presses Login, and the get reads the number back off the
@@ -20,9 +20,9 @@
  * known badge. Manually Enter User opens the same form with no badge at all,
  * for an attendee without one or a badge that will not scan.
  *
- * This is the badge-first version of enroll.html. The booth page takes a
- * typed name and number; this one takes them from the badge or the form, and
- * ends the same way: the number on a key, and the login path on the phone.
+ * This page replaced the booth page (enroll.html, retired 2026-10-12), which
+ * took a typed name and number; its URL now redirects here. The ending is the
+ * one it had: the number on a key, and the login path on the phone.
  *
  * DECODING: Chromium ships a BarcodeDetector backed by the platform (Vision
  * on macOS), which is used when it reports QR support. Safari has none, so
@@ -61,7 +61,7 @@ const LOCAL_HOSTNAMES = ['localhost', '127.0.0.1', '[::1]', '::1'];
 const SCAN_INTERVAL_MS = 150;
 const SCAN_WIDTH = 640;
 
-/** E.164 allows 15 digits; 7 is the shortest number worth accepting (as enroll.js). */
+/** E.164 allows 15 digits; 7 is the shortest number worth accepting. */
 const MIN_DIGITS = 7;
 const MAX_DIGITS = 15;
 
@@ -87,8 +87,8 @@ const CAMERA_ERRORS = {
 /**
  * Bare digits of a phone number, the form the key, the database and the
  * ?userid= parameter all use. The US trunk prefix on an 11-digit number is
- * dropped, the same rule as normalizePhone in enroll.js and phoneDigits in
- * app.js. The record the API returns may carry dashes (the owner's test user
+ * dropped, the same rule as phoneDigits in app.js. The record the API
+ * returns may carry dashes (the owner's test user
  * is "512-555-1234"), so this runs on everything before it is handed on.
  */
 export function normalizePhone(raw) {
@@ -105,7 +105,7 @@ export function formatPhone(value) {
 
 /**
  * The URL the attendee's phone opens once the key is enrolled: the demo with
- * the number in the User ID field, as the booth QR carries it. app.js reads
+ * the number in the User ID field. app.js reads
  * ?userid= on load and leaves New off, so the phone takes the login path and
  * reads the number back off the key.
  */
@@ -153,7 +153,7 @@ export async function findUserByPhone(phone, fetchImpl = fetch) {
   return Array.isArray(body) ? body[0] ?? null : body;
 }
 
-/** A plausible balance for a new demo account, as the booth page assigns one. */
+/** A plausible balance for a new demo account, since the form never asks for one. */
 export function demoBalance() {
   return Math.round((500 + Math.random() * 9000) * 100) / 100;
 }
@@ -486,7 +486,7 @@ function showAttendee(record, id, note = '') {
 
   const phone = normalizePhone(record.phone);
   if (!phone) {
-    note = 'This record has no phone number, so there is nothing to put on a key. Enroll at the booth instead.';
+    note = 'This record has no phone number, so there is nothing to put on a key. Use Manually Enter User to register it with one.';
   }
   $('attendee-note').textContent = note;
   $('attendee-note').hidden = !note;
@@ -506,7 +506,7 @@ function showAttendee(record, id, note = '') {
 }
 
 /**
- * Enroll iShield Key: the booth create for the attendee on screen, then the
+ * Enroll iShield Key: the key-enroll.js create for the attendee on screen, then the
  * warnings the key earned and, since the record is already in the database,
  * the hand-off code.
  */
@@ -593,7 +593,7 @@ function clearResult() {
   $('qr-code').replaceChildren();
 }
 
-/** Names the browser in the footer and warns in desktop Chrome, as enroll.html does. */
+/** Names the browser in the footer and warns in desktop Chrome. */
 async function showBrowserInfo() {
   const { label, chromium, desktop } = await detectBrowser();
   $('browser-info').textContent = `Browser: ${label}`;

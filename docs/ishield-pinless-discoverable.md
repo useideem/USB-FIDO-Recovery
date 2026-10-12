@@ -262,9 +262,12 @@ with the credential ID saved in `localStorage` on the enrolling device. A second
 device has no saved ID, so it can't find the key's credential. The approach
 above (discoverable credential plus server-stored IDs) fixes that.
 
-`enroll.html` is the first piece of that work: it enrolls attendees the way
-this document says to, independently of `ishield.js`. The retrieval side of the
-demo still has to be switched over.
+`enroll.html` was the first piece of that work: it enrolled attendees the way
+this document says to, independently of `ishield.js`. `register.html` replaced
+it on 2026-10-12 with the same create moved into `key-enroll.js`, and
+`/enroll.html` now redirects there. The retrieval side has since been switched
+over: `webauthnAuthenticate` in `ishield.js` sends an empty `allowCredentials`
+list.
 
 ### Handing the attendee off to the demo
 
@@ -297,7 +300,7 @@ authority: it hands back the user handle stored in the credential, and:
 - a **different spelling of the same number** (`913-555-1235`, `19135551235`)
   is accepted and the field is rewritten to the key's own spelling, so after a
   successful touch the two are literally equal. The digits rule is the same one
-  `normalizePhone` in `enroll.js` applied on the way onto the key;
+  `normalizePhone` in `register.js` applies on the way onto the key;
 - a credential that returns **no user handle** -- the old non-discoverable kind
   `ishield.js` used to create -- leaves the typed value alone, because there is
   nothing to compare it against.
@@ -326,7 +329,7 @@ generated before the rename lands on the demo with an empty field rather than
 a filled one.
 
 Once the credential is written *and* the database record is in place,
-`enroll.js` shows that URL as a QR code (`showQr`). Both conditions matter: a
+`register.js` shows that URL as a QR code (`showQr`). Both conditions matter: a
 code for a number with no record behind it would open the demo on an empty
 account. The code is generated in the page from the vendored
 `qrcode-generator` package -- no image service sees the phone number -- at
@@ -364,8 +367,8 @@ tunnel hostname.
 
 | File | Purpose |
 |---|---|
-| `enroll.html`, `enroll.js` | Booth enrollment page: first name, last name, phone number, one button. Creates the discoverable credential with the settings proven above (`residentKey: required`, `userVerification: discouraged`, `credProtect` level 1 unenforced, `hints: ["security-key"]`, `attestation: none`) and `user.id` = the phone number's digits, so any other device reads it back from the user handle. Checks the result and warns on screen when the credential came back non-discoverable, when the key used a PIN (UV true), or when `credProtect` is not level 1 -- all three break retrieval, and the attendee is still standing there. Warns up front in desktop Chrome, which cannot do this create PIN-less. Run it in Safari on a Mac. On success it also writes the attendee to the user database (`docs/user-api.md`) and shows a QR code that opens the demo with that number already filled in. |
-| `webauthn-util.js` | The parsing both pages share: the CBOR reader, authenticator data (flags, `signCount`, AAGUID, extension outputs such as `credProtect`), and the relying-party checks on `clientDataJSON` and `rpIdHash`. |
+| `register.html`, `register.js`, `key-enroll.js` | Registration page, which replaced the booth page `enroll.html` on 2026-10-12: a badge scan or a short form puts the attendee's name and phone number on screen, then one button creates the discoverable credential with the settings proven above (`residentKey: required`, `userVerification: discouraged`, `credProtect` level 1 unenforced, `hints: ["security-key"]`, `attestation: none`) and `user.id` = the phone number's digits, so any other device reads it back from the user handle. `key-enroll.js` holds that create as a function. The page checks the result and warns on screen when the credential came back non-discoverable, when the key used a PIN (UV true), or when `credProtect` is not level 1 -- all three break retrieval, and the attendee is still standing there. Warns up front in desktop Chrome, which cannot do this create PIN-less. Run it in Safari on a Mac. The attendee is in the user database (`docs/user-api.md`) before the create, and on success the page shows a QR code that opens the demo with that number already filled in. |
+| `webauthn-util.js` | The parsing `key-enroll.js` and the key tester share: the CBOR reader, authenticator data (flags, `signCount`, AAGUID, extension outputs such as `credProtect`), and the relying-party checks on `clientDataJSON` and `rpIdHash`. |
 | `fido-test.html`, `fido-test.js` | Raw WebAuthn test page: Create and Get with `residentKey`, `userVerification`, `credProtect` and allow-list choices (`attestation` is fixed at `none`, and both `userVerification` controls default to `discouraged` -- the PIN-less settings this demo needs). Parses authenticator data flags and extensions, verifies signatures, checks counters. The footer names the browser actually rendering the page, read from UA Client Hints rather than `navigator.userAgent` -- that is what caught the stale Chrome 101 above, whose user agent string reported a version it never shipped. |
 | `dev-server.mjs` | Local server (`node dev-server.mjs`, port 8080). Writes every page result to `.dev-logs/fido-test.jsonl` and keeps a shared list of issued credentials (`GET/POST /credentials`) in `.dev-logs/credentials.json`. `.dev-logs/` is git-ignored. |
 

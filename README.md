@@ -50,7 +50,7 @@ Phase 1: TRUST DEVICE
   form instead (name, phone, email), and Manually Enter User opens that
   form without a badge; Register adds the attendee. Enroll iShield Key
   then writes the phone number onto their key as a discoverable credential
-  (key-enroll.js, the booth page's create), and a second QR opens the demo
+  (key-enroll.js), and a second QR opens the demo
   on their phone with the number already in the User ID field: Login
   reads it back off the key, then ZSM + Passkeys+ enroll on the phone.
 
@@ -773,9 +773,7 @@ Demo-swissbit/
                           vendored jsQR), lookup by confirmation number or a form, the iShield
                           create, then a QR into the demo with ?userid=<digits>
   key-enroll.js        -- The discoverable create that puts a phone number on an iShield key, as a
-                          function for register.js (same options as enroll.js and fido-test.js)
-  enroll.html/.js      -- Booth page: writes the phone number onto an iShield key as a discoverable
-                          credential and shows a QR into the demo with ?userid=<digits>
+                          function for register.js (the measured options; fido-test.js defaults to them)
   api/db.js            -- Vercel function: proxy to the user API (/db/*)
   api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
   zsm_app_config.json  -- Ideem application credentials

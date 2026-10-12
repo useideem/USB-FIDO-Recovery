@@ -3,8 +3,8 @@
  *
  * The parts of a ceremony result that any page here needs to read: the
  * authenticator data flags and extension outputs, and the relying-party
- * checks a server would run on clientDataJSON. Used by both the enrollment
- * page (enroll.js) and the raw key tester (fido-test.js).
+ * checks a server would run on clientDataJSON. Used by key-enroll.js (the
+ * registration page's create) and the raw key tester (fido-test.js).
  *
  * SPEC REFERENCES:
  *   - W3C WebAuthn Level 3: https://www.w3.org/TR/webauthn-3/

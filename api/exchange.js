@@ -229,7 +229,7 @@ async function complete(code, userId) {
 
 /**
  * Reads the attendee's record from the user database by bare-digit phone,
- * the way app.js and enroll.js key every record. A User ID that is not a
+ * the way app.js and register.js key every record. A User ID that is not a
  * phone number, a number with no record, or a database that is down all
  * give a contact with found:false, so the exchange still goes through and
  * the pages show the User ID alone. Only the four fields the by-phone read
@@ -261,7 +261,7 @@ async function lookupContact(userId) {
   }
 }
 
-/** The same rule as phoneDigits in app.js and normalizePhone in enroll.js. */
+/** The same rule as phoneDigits in app.js and normalizePhone in register.js. */
 function phoneDigits(value) {
   const digits = String(value).replace(/\D/g, '');
   return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;

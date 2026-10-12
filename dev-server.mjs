@@ -217,6 +217,11 @@ createServer((req, res) => {
   }
   if (url.pathname === '/db' || url.pathname.startsWith('/db/')) return handleDb(req, res, url);
   if (url.pathname === '/api/exchange') return handleExchange(req, res, url);
+  if (url.pathname === '/enroll.html') {
+    // The retired booth page. vercel.json carries the same redirect; change the two together.
+    res.writeHead(307, { Location: '/register.html' }).end();
+    return;
+  }
   if (req.method === 'GET' || req.method === 'HEAD') return handleStatic(req, res);
   res.writeHead(405).end();
 }).listen(PORT, '127.0.0.1', () => {

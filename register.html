@@ -86,7 +86,7 @@
       <p class="en-warning" id="attendee-note" hidden></p>
     </section>
 
-    <!-- ENROLL: put the number on an iShield key, the same create as enroll.html -->
+    <!-- ENROLL: put the number on an iShield key (key-enroll.js) -->
     <section class="rg-step" id="enroll-section" aria-labelledby="enroll-title" hidden>
       <h2 class="ft-section-title" id="enroll-title">Step 3: Enroll iShield Key</h2>
       <p class="ft-hint">Insert the attendee's iShield key, press the button, then touch the key when the browser asks. The key must have no PIN set: a PIN-less key answers with a touch on any phone, while a key with a PIN asks every one of them for it.</p>
@@ -96,7 +96,7 @@
         device that reads the key afterwards will demand that PIN. Enroll in Safari instead.
       </p>
       <button id="enroll-key-btn" type="button" class="btn btn-primary">Enroll iShield Key</button>
-      <!-- Anything that would break retrieval stays in the open, as on enroll.html -->
+      <!-- Anything that would break retrieval stays in the open -->
       <div id="enroll-warnings"></div>
     </section>
 
@@ -114,7 +114,6 @@
   <!-- Footer -->
   <footer class="footer ft-footer">
     <p class="ft-hint" id="browser-info">Checking which browser this is...</p>
-    <a href="./enroll.html">Booth enrollment</a>
     <a href="./fido-test.html">Key tester</a>
     <a href="./index.html">Back to the demo</a>
   </footer>

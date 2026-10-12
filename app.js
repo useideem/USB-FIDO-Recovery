@@ -15,7 +15,7 @@
  *                       Bound, Passkey
  *   2. Login         -- authenticate() with Passkeys+ (no USB key needed).
  *                       An unbound device (an attendee arriving from the
- *                       booth QR) first gets the iShield touch, enroll(),
+ *                       registration QR) first gets the iShield touch, enroll(),
  *                       and the same SNA check
  *   3. Actions       -- step-up authenticate() per protected action
  *   3b. P2P Exchange -- after the step-up, a QR code another attendee scans;
@@ -75,7 +75,7 @@ function getUsername() {
 /**
  * Digits of a phone-shaped User ID, with the US trunk prefix dropped, so
  * "1 (913) 555-1235" and "9135551235" read as the same number. This is the
- * same rule normalizePhone in enroll.js applies before putting the number on
+ * same rule normalizePhone in register.js applies before putting the number on
  * the key, which is what makes the two comparable.
  */
 function phoneDigits(value) {
@@ -238,7 +238,7 @@ const PROTECTED_ACTION_LABELS = {
 const DB_BASE = './db';
 
 /**
- * What each money action costs. The booth form never asks for an amount, so
+ * What each money action costs. The registration form never asks for an amount, so
  * the demo charges a fixed one per action. Actions missing from this table
  * step up and stop; they touch no balance. P2P Contact Exchange branches to
  * its own screen before this table is consulted, so its entry is unused
@@ -544,7 +544,7 @@ function endExchange() {
   document.getElementById('exchange-qr')?.replaceChildren();
 }
 
-/** Draws the QR with the vendored generator, the same way enroll.js does. */
+/** Draws the QR with the vendored generator, the same way register.js does. */
 async function renderExchangeQr(url) {
   const box = document.getElementById('exchange-qr');
   try {
@@ -1431,22 +1431,20 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('username').value = savedUsername;
   }
 
-  // Auto-populate from URL parameters. ?userid= is what the booth and
-  // registration pages' QR codes carry: the attendee scans one and arrives
-  // with their number already in the field, having typed nothing.
+  // Auto-populate from URL parameters. ?userid= is what the registration
+  // page's QR code carries: the attendee scans it and arrives with their
+  // number already in the field, having typed nothing.
   const urlParams = new URLSearchParams(window.location.search);
   const urlUserId = urlParams.get('userid');
   if (urlUserId) {
     document.getElementById('username').value = urlUserId;
     localStorage.setItem('username', urlUserId);
-    // Which path they take depends on the page that sent them. The booth QR
-    // (enroll.html) sends somebody whose number was written to a key a moment
-    // ago, an existing user on a new device: New OFF routes them to the login
-    // path, which READS the key and checks its user handle against this
-    // field, where New ON would write a second credential to the same key for
-    // the same number. The registration QR (register.html) is the same case:
-    // that page writes the key before it draws the QR, so it carries no
-    // `new` parameter either. A link with &new=1 forces New ON for an
+    // Which path they take depends on the page that sent them. The
+    // registration QR (register.html) sends somebody whose number was written
+    // to a key a moment ago, an existing user on a new device: New OFF routes
+    // them to the login path, which READS the key and checks its user handle
+    // against this field, where New ON would write a second credential to the
+    // same key for the same number. A link with &new=1 forces New ON for an
     // attendee with nothing on a key yet, who then goes to Trust Device,
     // which creates one; no page emits that today. Passkeys is left
     // as the attendee last set it (on by default), so the binding enrolls a
@@ -1479,7 +1477,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const pendingExchange = getPendingExchange();
   if (pendingExchange) {
     // Whoever scanned is an attendee with a key: the login path, not the
-    // create path, same as arriving from the booth QR.
+    // create path, same as arriving from the registration QR.
     document.getElementById('new-user-toggle').checked = false;
     openExchangeInvite(pendingExchange);
   }
@@ -1496,7 +1494,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Show hint when clicking readonly username field. The field is readonly for
   // two different reasons, and the way out differs: on ACTIONS the session owns
   // the identity, while on LOGIN it is an existing user's number -- which is
-  // also the state somebody arriving from the booth QR lands in.
+  // also the state somebody arriving from the registration QR lands in.
   document.getElementById('username').addEventListener('click', (e) => {
     if (!e.target.readOnly) return;
     showFlash('flash-status',
