@@ -290,6 +290,12 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+/* .btn's own display value outranks the browser's [hidden] rule, so a button
+   toggled with the attribute (the exchange screen's Confirm) needs this. */
+.btn[hidden] {
+  display: none;
+}
+
 /* ===== ACTIONS Screen ===== */
 
 /* ===== Readonly username on ACTIONS screen ===== */

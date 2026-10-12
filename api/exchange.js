@@ -4,9 +4,10 @@
  * Pairs two logged-in attendees. The initiator (A) taps "P2P Contact
  * Exchange", passes the ZSM step-up, and the page POSTs A's User ID here. A
  * record is stored under a fresh code, and A's page shows that code as a QR
- * and polls it. The responder (B) scans the QR, logs in on the demo the usual
- * way, and B's page POSTs B's User ID with the code. Both pages then show the
- * other person's name and phone.
+ * and polls it. The responder (B) scans the QR, is asked to confirm sharing,
+ * verifies with their passkey (the demo's own login), and B's page POSTs B's
+ * User ID with the code. Both pages then show the other person's name and
+ * phone.
  *
  * The server never sees a ZSM token: the SDK's validate-token call has a
  * window of a few seconds and stays inside umfa.js, exactly as for login. So

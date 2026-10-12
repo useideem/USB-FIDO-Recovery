@@ -53,9 +53,10 @@ Phase 3: PROTECTED ACTIONS (step-up auth)
   the balance shown on the Actions screen updates; the page refuses the
   charge itself when the balance is short, because the API does not.
   P2P Contact Exchange opens a QR code instead. Another attendee scans
-  it, logs in on their own phone the same way, and both phones then show
-  the other person's name and phone number, read from the user database
-  by api/exchange.js. Each side's passkey login is what authorizes it.
+  it, is asked to confirm sharing their contact info, verifies with their
+  passkey, and both phones then show the other person's name and phone
+  number, read from the user database by api/exchange.js. Each side's
+  passkey verification is what authorizes it.
 
 Phase 4: ENABLING / DISABLING DEVICE
   User can disable device with click of button. To re-enable device, user must reinsert iShield Key.

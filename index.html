@@ -141,8 +141,9 @@
     </div>
 
     <!-- EXCHANGE screen — P2P Contact Exchange. The same screen serves both
-         sides: the initiator shows a QR and waits, the responder arrives via
-         ?exchange=<code>, logs in, and lands here with the result. -->
+         sides: the initiator shows a QR and waits; the responder arrives via
+         ?exchange=<code>, is asked to confirm, verifies with their passkey,
+         and sees the result here. -->
     <div class="screen" id="EXCHANGE">
       <p class="exchange-title" id="exchange-title"></p>
       <div class="exchange-qr" id="exchange-qr-section" hidden>
@@ -157,6 +158,7 @@
         <div class="contact-id" id="exchange-userid"></div>
       </div>
       <p class="exchange-note" id="exchange-note" hidden></p>
+      <button id="exchange-confirm" class="btn btn-primary" hidden>Confirm sharing contact info</button>
       <button id="exchange-done" class="btn btn-primary">Done</button>
     </div>
 

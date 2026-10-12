@@ -13,7 +13,8 @@
  *   2. Login         -- authenticate() with Passkeys+ (no USB key needed)
  *   3. Actions       -- step-up authenticate() per protected action
  *   3b. P2P Exchange -- after the step-up, a QR code another attendee scans;
- *                       both phones then show the other's contact (api/exchange.js)
+ *                       they confirm, verify with their passkey, and both
+ *                       phones then show the other's contact (api/exchange.js)
  *   4. Suspend       -- flag device as suspended, require iShield to reactivate
  *
  * NOTE: state.js is loaded as a classic script (non-module) so that the
@@ -357,8 +358,10 @@ const PENDING_EXCHANGE_KEY = 'pendingExchange';
  * The exchange this page is part of, if any. `role` is 'initiator' (this
  * phone showed the QR) or 'responder' (this phone scanned it). `record` is
  * the server's copy, refreshed by polling or by the completion response.
+ * `confirmed` is the responder's tap on "Confirm sharing contact info";
+ * until then the screen only asks.
  */
-const exchange = { active: false, role: null, code: null, record: null, pollTimer: null };
+const exchange = { active: false, role: null, code: null, record: null, pollTimer: null, confirmed: false };
 
 function getPendingExchange() {
   try { return sessionStorage.getItem(PENDING_EXCHANGE_KEY) || ''; } catch (_) { return ''; }
@@ -434,13 +437,14 @@ async function pollExchange() {
 }
 
 /**
- * Responder side, right after login: send this User ID against the scanned
- * code. The login that just happened is the passkey authentication that
- * authorizes it, so there is no second prompt.
+ * Responder side, once the passkey verification has set STATE.loginID: send
+ * this User ID against the scanned code. The record the invite read is kept
+ * so the screen keeps naming the other person while it sends.
  */
 async function completeExchange(user, code) {
   setPendingExchange('');
-  Object.assign(exchange, { active: true, role: 'responder', code, record: null });
+  const record = exchange.code === code ? exchange.record : null;
+  Object.assign(exchange, { active: true, role: 'responder', code, record, confirmed: true });
   showScreen('EXCHANGE');
   renderExchange();
   const { status, ok, data } = await exchangeFetch(`?code=${encodeURIComponent(code)}`, { userId: user });
@@ -453,29 +457,74 @@ async function completeExchange(user, code) {
 }
 
 /**
- * Tells someone who has just scanned a QR what they are logging in for, or
- * that the code is already dead, before they go looking for their key.
+ * Responder side, the moment the QR's URL opens: show who is asking and a
+ * "Confirm sharing contact info" button, before any credential is touched.
+ * The code stays in sessionStorage so a reload lands back on this screen.
+ * A code the server no longer holds, or one already used, is said so here
+ * and forgotten, so nobody digs out a key for nothing.
  */
-async function announceExchangeInvite(code) {
+async function openExchangeInvite(code) {
+  setPendingExchange(code);
+  Object.assign(exchange, { active: true, role: 'responder', code, record: null, confirmed: false });
+  showScreen('EXCHANGE');
+  renderExchange();
   const { status, ok, data } = await exchangeFetch(`?code=${encodeURIComponent(code)}`);
+  if (!exchange.active || exchange.code !== code) return;   // Cancel was tapped meanwhile
   if (status === 404) {
     setPendingExchange('');
-    showFlash('flash-status', 'This QR code has expired. Ask them to tap P2P Contact Exchange again.', 'failure', 8000);
-    return;
+    return renderExchange({ expired: true });
   }
-  if (!ok) return;   // the server will say so again after login
+  if (!ok) return renderExchange({ error: data.error || 'no response' });
   if (data.responder) {
     setPendingExchange('');
-    showFlash('flash-status', 'This code was already used.', 'failure', 8000);
+    return renderExchange({ used: true });
+  }
+  exchange.record = data;
+  renderExchange();
+}
+
+/**
+ * The confirm tap. The passkey verification is the demo's own login: on a
+ * phone that is not bound yet that is the iShield touch plus ZSM enrollment,
+ * on a bound phone the ZSM authenticate. login() ends in updateUI, which sees
+ * the pending code and calls completeExchange. Should the page already be
+ * logged in, the ZSM step-up alone is the verification, as for the actions.
+ */
+async function confirmExchange() {
+  const btn = document.getElementById('exchange-confirm');
+  if (!getUsername()) {
+    showFlash('flash-status', 'Enter your User ID first.', 'failure', 4000);
+    document.getElementById('username').focus();
     return;
   }
-  showFlash('flash-status', `Log in to exchange contacts with ${displayName(data.initiator)}.`, 'success', 8000);
+  if (!STATE.loginID) {
+    await login(btn);
+    return;
+  }
+  btn.classList.add('loading');
+  btn.setAttribute('aria-busy', 'true');
+  try {
+    const usePasskeys = document.getElementById('use-passkeys-toggle')?.checked === true;
+    const authResult = await authenticate(STATE.loginID, usePasskeys);
+    if (!authResult.success) {
+      showFlash('flash-status', 'Passkey verification failed', 'failure', 4000);
+      return;
+    }
+    if (authResult.challengeData) {
+      updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
+    }
+    updateAuthIcons({ zsm: true, passkeys: usePasskeys });
+    await completeExchange(STATE.loginID, exchange.code);
+  } finally {
+    btn.classList.remove('loading');
+    btn.removeAttribute('aria-busy');
+  }
 }
 
 /** Leaves the exchange: stops polling and forgets the record and any pending code. */
 function endExchange() {
   if (exchange.pollTimer) clearTimeout(exchange.pollTimer);
-  Object.assign(exchange, { active: false, role: null, code: null, record: null, pollTimer: null });
+  Object.assign(exchange, { active: false, role: null, code: null, record: null, pollTimer: null, confirmed: false });
   setPendingExchange('');
   document.getElementById('exchange-qr')?.replaceChildren();
 }
@@ -508,6 +557,7 @@ function renderExchange({ expired = false, used = false, error = '' } = {}) {
   const complete = !!(record && record.responder);
   const other = complete ? (initiator ? record.responder : record.initiator) : null;
   const over = complete || expired || used || !!error;
+  const awaitingConfirm = !initiator && !exchange.confirmed;
 
   let title = 'P2P Contact Exchange';
   let status;
@@ -529,9 +579,15 @@ function renderExchange({ expired = false, used = false, error = '' } = {}) {
       ? 'Exchange complete. They have your contact too.'
       : `Exchange complete. ${displayName(record.initiator)} has your contact too.`;
     state = 'success';
+  } else if (awaitingConfirm) {
+    title = 'Confirm sharing contact info';
+    status = record
+      ? `${displayName(record.initiator)} wants to exchange contact info with you. You will verify with your passkey, then you both see each other's name and phone.`
+      : 'Checking this code…';
+    state = 'info';
   } else {
     title = initiator ? 'Have them scan this code' : 'Exchanging contacts…';
-    status = initiator ? 'Waiting for the other person to log in…' : 'Sending your contact…';
+    status = initiator ? 'Waiting for the other person to confirm…' : 'Sending your contact…';
     state = 'info';
   }
 
@@ -539,7 +595,12 @@ function renderExchange({ expired = false, used = false, error = '' } = {}) {
   $('exchange-status').textContent = status;
   $('exchange-status').className = 'flash ' + state;
   $('exchange-qr-section').hidden = !(initiator && !over);
+  // The confirm button appears once the invite knows who is asking; Cancel
+  // steps down to secondary beside it and is the only button otherwise.
+  const confirmBtn = $('exchange-confirm');
+  confirmBtn.hidden = !(awaitingConfirm && !over && !!record);
   $('exchange-done').textContent = over ? 'Done' : 'Cancel';
+  $('exchange-done').className = 'btn ' + (confirmBtn.hidden ? 'btn-primary' : 'btn-secondary');
 
   const card = $('exchange-card');
   card.hidden = !other;
@@ -601,16 +662,18 @@ function showScreen(screenId) {
     target.setAttribute('aria-hidden', 'false');
   }
 
-  // Username field is readonly once logged in (ACTIONS, EXCHANGE), and on
-  // LOGIN when "New" is off (existing user)
-  const loggedInScreen = screenId === 'ACTIONS' || screenId === 'EXCHANGE';
+  // Username field is readonly once logged in (ACTIONS, or EXCHANGE after the
+  // responder has verified), and on LOGIN when "New" is off (existing user).
+  // A responder who has only scanned so far can still correct the User ID.
+  const loggedInScreen = screenId === 'ACTIONS' || (screenId === 'EXCHANGE' && !!STATE.loginID);
   const usernameEl = document.getElementById('username');
   const isNew = document.getElementById('new-user-toggle').checked;
   usernameEl.readOnly = loggedInScreen || (screenId === 'LOGIN' && !isNew);
 
-  // Hide "New" toggle once logged in (irrelevant by then)
+  // Hide "New" toggle once logged in, and on EXCHANGE throughout: whoever
+  // scanned a P2P QR has a key and takes the login path.
   const newToggle = document.getElementById('new-user-toggle-container');
-  if (newToggle) newToggle.hidden = loggedInScreen;
+  if (newToggle) newToggle.hidden = loggedInScreen || screenId === 'EXCHANGE';
 
   // Announce screen change to screen readers
   const announcer = document.getElementById('screen-announcer');
@@ -696,18 +759,22 @@ async function updateUI() {
   const isNewUser = newToggleEl.checked;
   if (STATE.loginID) {
     const pendingCode = getPendingExchange();
-    if (exchange.active) {
-      showScreen('EXCHANGE');
-    } else if (pendingCode) {
-      // Arrived by scanning someone's P2P QR: the login that just finished is
-      // the authentication the exchange needs, so it completes right away.
+    if (pendingCode) {
+      // The passkey verification that just set loginID is what the scanned
+      // exchange was waiting for, so it completes right away.
       completeExchange(STATE.loginID, pendingCode)
         .catch(err => console.error('[exchange] completion failed:', err));
+    } else if (exchange.active) {
+      showScreen('EXCHANGE');
     } else {
       showScreen('ACTIONS');
     }
     // Load the account once per login; the money actions re-read it themselves.
     if (accountFor !== STATE.loginID) await refreshAccount(STATE.loginID);
+  } else if (exchange.active) {
+    // Scanned a P2P QR and not verified yet: the confirm screen stays up
+    // whatever the toggles say.
+    showScreen('EXCHANGE');
   } else if (isNewUser) {
     showScreen('SETUP');
   } else {
@@ -777,13 +844,13 @@ async function trustDevice() {
 }
 
 // ---------------------------------------------------------------------------
-// login — authenticate with Passkeys+ only
+// login — authenticate with Passkeys+ only. `btn` is whichever button started
+// it: Login, or the exchange screen's Confirm.
 // ---------------------------------------------------------------------------
-async function login() {
+async function login(btn = document.getElementById('login-btn')) {
   let user = getUsername();  // replaced by the key's own spelling once it answers
   if (!user) return;
 
-  const btn = document.getElementById('login-btn');
   btn.classList.add('loading');
   btn.setAttribute('aria-busy', 'true');
   btn.setAttribute('aria-disabled', 'true');
@@ -1073,7 +1140,11 @@ document.addEventListener('DOMContentLoaded', () => {
   // Log Out
   document.getElementById('logout-btn').addEventListener('click', () => logOut());
 
-  // Done / Cancel on the exchange screen: back to the actions, still logged in
+  // Confirm on the exchange screen: the responder's passkey verification
+  document.getElementById('exchange-confirm').addEventListener('click', () => confirmExchange());
+
+  // Done / Cancel on the exchange screen: back to the actions when logged
+  // in, otherwise to the login screen
   document.getElementById('exchange-done').addEventListener('click', async () => {
     endExchange();
     await updateUI();
@@ -1113,20 +1184,22 @@ document.addEventListener('DOMContentLoaded', () => {
     setPasskeysToggle(urlUserId, false);
   }
 
-  // ?exchange= is what another attendee's P2P QR carries. The code is kept
-  // until this phone has logged in; updateUI then completes the exchange.
-  // It is dropped from the address bar so a reload cannot replay a code
-  // that was already used.
+  // ?exchange= is what another attendee's P2P QR carries. The code goes to
+  // sessionStorage and comes off the address bar, so a reload lands on the
+  // same confirm screen while a used code cannot be replayed from history.
   const urlExchange = urlParams.get('exchange');
   if (urlExchange) {
     setPendingExchange(urlExchange.trim().toUpperCase());
-    // Whoever scanned is an attendee with a key: the login path, not the
-    // create path, same as arriving from the booth QR.
-    document.getElementById('new-user-toggle').checked = false;
     urlParams.delete('exchange');
     const query = urlParams.toString();
     history.replaceState(null, '', location.pathname + (query ? `?${query}` : ''));
-    announceExchangeInvite(getPendingExchange());
+  }
+  const pendingExchange = getPendingExchange();
+  if (pendingExchange) {
+    // Whoever scanned is an attendee with a key: the login path, not the
+    // create path, same as arriving from the booth QR.
+    document.getElementById('new-user-toggle').checked = false;
+    openExchangeInvite(pendingExchange);
   }
 
   // ?msg= — show flash message from redirect
