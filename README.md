@@ -607,11 +607,11 @@ try {
 
 #### `webauthnAuthenticate(user)`
 
-Authenticates a user with their enrolled iShield USB key via raw WebAuthn (`navigator.credentials.get()`).
+Authenticates a user with their enrolled iShield USB key via raw WebAuthn (`navigator.credentials.get()`). The get is `webauthnIdentify()` below; this wrapper takes the expected username and logs a mismatch with the key's user handle (the caller decides what to do with it).
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `user` | `string` | Username. Used to look up the stored credential ID. |
+| `user` | `string` | The expected username. Compared with the user handle the key returns; empty is a failure. |
 
 **Returns:** `Promise<object>`
 
@@ -619,8 +619,9 @@ Authenticates a user with their enrolled iShield USB key via raw WebAuthn (`navi
 ```javascript
 {
   success: true,
-  clientDataHash: '7a3f...',  // SHA-256 hex of clientDataJSON
-  signatureHex: 'a1b2c3...'   // hex-encoded raw signature bytes
+  clientDataHash: '7a3f...',     // SHA-256 hex of clientDataJSON
+  signatureHex: 'a1b2c3...',     // hex-encoded raw signature bytes
+  authenticatedUser: '9135551235' // the key's user handle as text, or null
 }
 ```
 
@@ -636,6 +637,19 @@ Authenticates a user with their enrolled iShield USB key via raw WebAuthn (`navi
 const result = await webauthnAuthenticate('alice');
 if (result.success) {
   console.log('Signature:', result.signatureHex);
+}
+```
+
+---
+
+#### `webauthnIdentify()`
+
+Asks whichever iShield key is present who it is: the same open get (empty `allowCredentials`, `userVerification: 'discouraged'`, `hints: ['security-key']`) with no expected username. The identity comes back in `authenticatedUser`, the user handle the registration page wrote onto the key. `partner.html` calls this directly. Same result shapes as `webauthnAuthenticate`, minus the empty-user failure.
+
+```javascript
+const result = await webauthnIdentify();
+if (result.success && result.authenticatedUser) {
+  location.assign(`https://partner.example/?userid=${encodeURIComponent(result.authenticatedUser)}`);
 }
 ```
 
@@ -774,6 +788,8 @@ Demo-swissbit/
                           create, then a QR into the demo with ?userid=<digits>
   key-enroll.js        -- The discoverable create that puts a phone number on an iShield key, as a
                           function for register.js (the measured options; fido-test.js defaults to them)
+  partner.html/.js     -- Partner hand-off: Identify reads the User ID off an iShield key and opens the
+                          URL in <meta name="partner-url"> with ?userid=<digits> added
   api/db.js            -- Vercel function: proxy to the user API (/db/*)
   api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
   zsm_app_config.json  -- Ideem application credentials

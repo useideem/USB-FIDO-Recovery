@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Identify | Swissbit + Ideem</title>
+  <!-- Where Identify sends the browser once the key has answered: an absolute
+       URL, or a path relative to this page. The User ID read off the key is
+       added to its query string as ?userid=<digits>; a query string already
+       on the URL is kept. Left empty, the page shows the number and stops. -->
+  <meta name="partner-url" content="https://sbit.authconcepts.com:3099/quick-balance.html">
+  <link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="logo-row">
+      <img src="./swissbit_logo.png" alt="Swissbit" class="logo logo-swissbit">
+      <span class="logo-divider"></span>
+      <img src="./ideem-logo.png" alt="Ideem" class="logo logo-ideem">
+    </div>
+    <p class="subtitle">Identify with your iShield key</p>
+  </header>
+
+  <main class="card pt-card">
+
+    <!-- Flash message: what the key is doing, and why it failed -->
+    <div id="flash-status" class="flash" role="status" aria-live="polite"></div>
+
+    <!-- IDENTIFY: one touch, then the partner page opens with the User ID -->
+    <section class="pt-step" aria-labelledby="identify-title">
+      <h2 class="ft-section-title" id="identify-title">Identify</h2>
+      <p class="ft-hint">Insert your iShield key, press <b>Identify</b>, then touch the key when the browser asks. Your User ID is read off the key and the partner page opens with it.</p>
+      <!-- Shown only in desktop Chrome, which cannot read a PIN-less key this way -->
+      <p class="en-warning" id="chrome-warning" hidden>
+        Desktop Chrome refuses to read a PIN-less key without a credential list, so
+        Identify will not work here. Use a phone, or Safari on a Mac.
+      </p>
+      <button id="identify-btn" type="button" class="btn btn-primary">Identify</button>
+    </section>
+
+    <!-- The number the key answered with. Normally the redirect follows at
+         once; this stays on screen only when there is nowhere to send it. -->
+    <section class="pt-result" id="result" aria-live="polite" hidden>
+      <dl class="rg-details">
+        <div class="rg-detail"><dt>User ID</dt><dd class="rg-mono" id="result-user"></dd></div>
+      </dl>
+      <p class="en-warning" id="result-note" hidden></p>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer ft-footer">
+    <p class="ft-hint" id="browser-info">Checking which browser this is...</p>
+    <a href="./register.html">Register</a>
+    <a href="./fido-test.html">Key tester</a>
+    <a href="./index.html">Back to the demo</a>
+  </footer>
+
+  <script type="module" src="./partner.js"></script>
+</body>
+</html>

@@ -1773,3 +1773,30 @@ body {
   margin-top: 12px;
   margin-bottom: 0;
 }
+
+/* ===== Partner Page (partner.html) ===== */
+
+.pt-card,
+.pt-card + .footer {
+  max-width: 520px;
+}
+
+.pt-step > .ft-hint {
+  margin-bottom: 14px;
+}
+
+.pt-card .btn-primary {
+  width: 100%;
+}
+
+/* The number read off the key, left on screen only when there is nowhere to send it */
+.pt-result {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.pt-result .en-warning {
+  margin-top: 14px;
+  margin-bottom: 0;
+}

@@ -313,29 +313,18 @@ export async function webauthnEnroll(user) {
 /**
  * Authenticates a user with their iShield USB key via raw WebAuthn.
  *
- * Uses discoverable (resident) credentials -- the key presents its own
- * stored credential without needing an allowCredentials list. This means
- * authentication works on ANY device, not just the one where enrollment
- * happened.
+ * The ceremony itself is webauthnIdentify below; this wrapper adds the
+ * expected username. The `user` parameter is used to VERIFY the
+ * authenticated identity: the `userHandle` returned by the key should match
+ * it. A mismatch is logged, not failed -- the caller decides what to do
+ * (app.js reconciles the two spellings of a phone number, and stops on a
+ * different number).
  *
- * The `user` parameter is used to VERIFY the authenticated identity: the
- * `userHandle` returned by the key must match the expected username.
+ * RESULT SHAPES: as webauthnIdentify, plus
+ *   Failure: { success: false, error: Error('No user specified.') } when
+ *   `user` is empty.
  *
- * Returns a structured result object instead of throwing, so the caller
- * can cleanly branch on success vs. failure and display appropriate messages.
- *
- * RESULT SHAPES:
- *   Success: { success: true, clientDataHash: string, signatureHex: string, authenticatedUser: string }
- *     - clientDataHash: SHA-256 hex of the clientDataJSON (for display)
- *     - signatureHex: hex-encoded raw signature bytes (for display)
- *     - authenticatedUser: username recovered from the key's userHandle
- *
- *   Failure: { success: false, error: Error }
- *     - error.name === 'NotAllowedError': user cancelled or timed out
- *     - error.message contains 'mismatch': wrong user on this key
- *     - Other error names: unexpected failure
- *
- * @param {string} user - The expected username. Verified against userHandle.
+ * @param {string} user - The expected username. Compared with userHandle.
  * @returns {Promise<{success: boolean, clientDataHash?: string, signatureHex?: string, authenticatedUser?: string, error?: Error}>}
  */
 export async function webauthnAuthenticate(user) {
@@ -343,9 +332,46 @@ export async function webauthnAuthenticate(user) {
     return { success: false, error: new Error('No user specified.') };
   }
 
-  const challenge = crypto.getRandomValues(new Uint8Array(32));
-
   console.log('[FIDO2 Auth] Starting authentication for user:', user);
+  const result = await webauthnIdentify();
+
+  // Log mismatch but don't fail — caller decides what to do
+  if (result.success && result.authenticatedUser && result.authenticatedUser !== user) {
+    console.warn('[FIDO2 Auth] User mismatch:', { expected: user, got: result.authenticatedUser });
+  }
+  return result;
+}
+
+/**
+ * Asks whichever iShield key is present who it is: a raw WebAuthn get with
+ * no expected user.
+ *
+ * Uses discoverable (resident) credentials -- the key presents its own
+ * stored credential without needing an allowCredentials list. This means
+ * the get works on ANY device, not just the one where enrollment happened,
+ * and the identity comes back in the credential's userHandle (the phone
+ * number register.html wrote there). partner.html calls this directly; the
+ * demo's login goes through webauthnAuthenticate above.
+ *
+ * Returns a structured result object instead of throwing, so the caller
+ * can cleanly branch on success vs. failure and display appropriate messages.
+ *
+ * RESULT SHAPES:
+ *   Success: { success: true, clientDataHash: string, signatureHex: string, authenticatedUser: string|null }
+ *     - clientDataHash: SHA-256 hex of the clientDataJSON (for display)
+ *     - signatureHex: hex-encoded raw signature bytes (for display)
+ *     - authenticatedUser: the key's userHandle as text, or null when the
+ *       credential carries none (the old non-discoverable kind)
+ *
+ *   Failure: { success: false, error: Error }
+ *     - error.name === 'NotAllowedError': user cancelled or timed out
+ *     - a platform authenticator (Touch ID) answered instead of the key
+ *     - Other error names: unexpected failure
+ *
+ * @returns {Promise<{success: boolean, clientDataHash?: string, signatureHex?: string, authenticatedUser?: string|null, error?: Error}>}
+ */
+export async function webauthnIdentify() {
+  const challenge = crypto.getRandomValues(new Uint8Array(32));
 
   // Always an open query: an empty allowCredentials list, so the key answers
   // with whatever discoverable credential it holds and we learn who it is from
@@ -378,11 +404,6 @@ export async function webauthnAuthenticate(user) {
     let authenticatedUser = null;
     if (assertion.response.userHandle && assertion.response.userHandle.byteLength > 0) {
       authenticatedUser = new TextDecoder().decode(assertion.response.userHandle);
-    }
-
-    // Log mismatch but don't fail — caller decides what to do
-    if (authenticatedUser && authenticatedUser !== user) {
-      console.warn('[FIDO2 Auth] User mismatch:', { expected: user, got: authenticatedUser });
     }
 
     // Extract challenge and signature for display purposes
