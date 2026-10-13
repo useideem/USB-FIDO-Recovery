@@ -1,0 +1,150 @@
+/* party.css -- the "Death to Passwords" party theme shared by the landing
+ * page and the demo page (index.html): the entry photo behind everything, a
+ * dark top bar, a white sponsor strip, cream text outside the card and a
+ * translucent light card with a gold edge. Everything is scoped to
+ * body.party so the sheet can load after style.css (index.html) or on its
+ * own (landing.html, which adds its hero in landing.css). The look is copied
+ * from the API owner's welcome and quick-balance pages at
+ * sbit.authconcepts.com:3099. */
+
+body.party {
+  --party-ink: #080e10;
+  --party-gold: #efd2a0;
+  --party-cream: #fff4e4;
+  --party-cream-muted: #d2c8bd;
+  --party-maroon: #791c31;
+  --party-maroon-hover: #982540;
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  color: var(--party-cream);
+  background: var(--party-ink) url("./landing/entry.jpg") center top / cover no-repeat;
+}
+
+.party a:focus-visible {
+  outline: 3px solid var(--party-gold);
+  outline-offset: 5px;
+}
+
+/* ----- Top bar ----- */
+
+.party .topbar {
+  width: 100%;
+  padding: 14px 0;
+  background: rgba(8, 14, 16, 0.94);
+  border-bottom: 1px solid rgba(239, 210, 160, 0.25);
+}
+
+.party .topbar .container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+.party .brand {
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: #fff;
+  text-decoration: none;
+}
+
+/* ----- Sponsor strip: the partner logos on white ----- */
+
+.party .sponsors {
+  width: 100%;
+  padding: 16px 0;
+  background: #fff;
+}
+
+.party .sponsor-track {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-evenly;
+  gap: 20px 32px;
+  width: 100%;
+  padding: 0 24px;
+}
+
+.party .sponsor-track img {
+  display: block;
+  height: 40px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+}
+
+/* The Google wordmark fills its image where the others carry padding, so it
+   is drawn shorter to read the same size */
+.party .sponsor-track img.logo-google {
+  height: 28px;
+}
+
+/* ----- A style.css page below the strip (index.html) ----- */
+
+/* The demo lays its header, card and footer out with style.css's body
+   rules; .page takes those over so the top bar and strip can span the
+   whole width above it. */
+.party .page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  padding: 20px 16px;
+}
+
+.party .header .subtitle {
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--party-cream);
+  text-shadow: 0 2px 6px #000;
+}
+
+.party .card {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(239, 210, 160, 0.5);
+  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
+}
+
+/* The outlined footer buttons sit on the photo, so they get a dark ground */
+.party .footer .btn-warning-small,
+.party .footer .btn-danger-small {
+  background: rgba(8, 14, 16, 0.72);
+}
+
+.party .footer .btn-warning-small:hover {
+  background: var(--color-warning-bg);
+}
+
+.party .footer .btn-danger-small:hover {
+  background: var(--color-danger-bg);
+}
+
+.party .footer a {
+  color: var(--party-cream);
+}
+
+/* ----- Phones ----- */
+
+@media (max-width: 600px) {
+  body.party {
+    background-position: 56% top;
+  }
+
+  /* Smaller logos so the strip is two rows at most on a phone */
+  .party .sponsor-track {
+    gap: 12px 20px;
+    padding: 0 12px;
+  }
+
+  .party .sponsor-track img {
+    height: 28px;
+    max-width: 90px;
+  }
+
+  .party .sponsor-track img.logo-google {
+    height: 20px;
+  }
+}

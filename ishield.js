@@ -7,7 +7,7 @@
  * It has ZERO SDK dependencies -- just raw browser WebAuthn calls.
  *
  * WHAT IT DOES:
- *   - Enrolls an iShield USB key for a user (creates a FIDO2 credential)
+ *   - Enrolls an FIDO USB key for a user (creates a FIDO2 credential)
  *   - Authenticates a user by requesting a USB key touch
  *   - Stores enrollment markers in localStorage (credential lives on the key)
  *   - Manages device suspension state (localStorage flags)
@@ -35,7 +35,7 @@
  *   - Requires HTTPS or localhost (WebAuthn security requirement)
  *   - authenticatorAttachment: 'cross-platform' targets USB keys specifically
  *     (as opposed to 'platform' which targets TouchID/FaceID/Windows Hello)
- *   - userVerification: 'discouraged' -- iShield keys use touch only; they
+ *   - userVerification: 'discouraged' -- FIDO keys use touch only; they
  *     do not have a PIN or biometric, so don't require user verification
  *   - Enrollment markers are stored in localStorage under
  *     the key 'ishield_enrolled:<username>'
@@ -48,11 +48,11 @@
 // ---------------------------------------------------------------------------
 
 /**
- * localStorage key prefix for iShield enrollment markers.
+ * localStorage key prefix for FIDO key enrollment markers.
  * Full key = ENROLLMENT_MARKER_PREFIX + username
  * Value = JSON string: { id: '<base64url>', createdAt: '<ISO date>' }
  *
- * NOTE: The credential itself lives on the iShield key (discoverable/resident
+ * NOTE: The credential itself lives on the FIDO key (discoverable/resident
  * credential). This localStorage marker is only used to indicate that
  * enrollment happened on THIS device. On a new device the marker won't
  * exist, but the key can still authenticate via discoverable credential.
@@ -78,7 +78,7 @@ export const PASSKEYS_TOGGLE_PREFIX = 'actions_passkeys_toggle:';
 // ---------------------------------------------------------------------------
 
 /**
- * Returns true if an iShield enrollment marker exists for this user on
+ * Returns true if an FIDO key enrollment marker exists for this user on
  * this device. The marker is set after enrollment or device binding.
  *
  * NOTE: A false return does NOT mean the user has no iShield credential --
@@ -96,7 +96,7 @@ export function hasLocalEnrollmentMarker(user) {
  * Returns true if this user's device is currently suspended.
  *
  * A suspended device requires the user to re-authenticate with their
- * physical iShield USB key before Passkeys+ login is re-enabled.
+ * physical FIDO USB key before Passkeys+ login is re-enabled.
  *
  * @param {string} user - The username to check.
  * @returns {boolean} True if the device is suspended.
@@ -211,11 +211,11 @@ export async function hashSHA256(input) {
 // ---------------------------------------------------------------------------
 
 /**
- * Enrolls an iShield USB key for a user via raw WebAuthn.
+ * Enrolls an FIDO USB key for a user via raw WebAuthn.
  *
  * This is step 1 of the Trust Device flow. It calls
  * navigator.credentials.create() to register a new FIDO2 credential on the
- * iShield USB key, then stores the credential ID in localStorage so the key
+ * FIDO USB key, then stores the credential ID in localStorage so the key
  * can be targeted specifically during future authentication.
  *
  * The authenticator selection is deliberately configured for cross-platform
@@ -311,7 +311,7 @@ export async function webauthnEnroll(user) {
 }
 
 /**
- * Authenticates a user with their iShield USB key via raw WebAuthn.
+ * Authenticates a user with their FIDO USB key via raw WebAuthn.
  *
  * The ceremony itself is webauthnIdentify below; this wrapper adds the
  * expected username. The `user` parameter is used to VERIFY the
@@ -343,7 +343,7 @@ export async function webauthnAuthenticate(user) {
 }
 
 /**
- * Asks whichever iShield key is present who it is: a raw WebAuthn get with
+ * Asks whichever FIDO key is present who it is: a raw WebAuthn get with
  * no expected user.
  *
  * Uses discoverable (resident) credentials -- the key presents its own
@@ -396,7 +396,7 @@ export async function webauthnIdentify() {
     if (assertion.authenticatorAttachment === 'platform') {
       return {
         success: false,
-        error: new Error('Please use your iShield USB key, not Touch ID or a platform passkey.')
+        error: new Error('Please use your FIDO USB key, not Touch ID or a platform passkey.')
       };
     }
 

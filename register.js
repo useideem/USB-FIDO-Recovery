@@ -6,7 +6,7 @@
  * read. The code on a conference badge is the attendee's confirmation number,
  * which the user API resolves to a record (GET /users/conf/:confNumber, see
  * docs/user-api.md section 3b): first name, last name, phone, email. Those go
- * on screen. Enroll iShield Key then writes the phone number, as bare digits,
+ * on screen. Enroll FIDO Key then writes the phone number, as bare digits,
  * onto the inserted key as a discoverable credential (key-enroll.js: the
  * measured create the key tester defaults to), and only then does a second
  * QR code appear, pointing at the demo with ?userid=<digits>. The attendee
@@ -499,14 +499,14 @@ function showAttendee(record, id, note = '') {
     displayName: attendeeName(record)
   };
   $('enroll-warnings').replaceChildren();
-  $('enroll-key-btn').textContent = 'Enroll iShield Key';
+  $('enroll-key-btn').textContent = 'Enroll FIDO Key';
   $('enroll-section').hidden = false;
   $('qr-section').hidden = true;   // only once the number is on a key
   $('enroll-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
 /**
- * Enroll iShield Key: the key-enroll.js create for the attendee on screen, then the
+ * Enroll FIDO Key: the key-enroll.js create for the attendee on screen, then the
  * warnings the key earned and, since the record is already in the database,
  * the hand-off code.
  */
@@ -519,7 +519,7 @@ async function enrollAttendeeKey() {
   btn.disabled = true;
   $('enroll-warnings').replaceChildren();
   $('qr-section').hidden = true;
-  showFlash('Insert the iShield Key and touch it...', 'info', 0);
+  showFlash('Insert the FIDO Key and touch it...', 'info', 0);
 
   let result;
   try {
@@ -540,8 +540,8 @@ async function enrollAttendeeKey() {
     p.textContent = text;
     return p;
   }));
-  btn.textContent = 'Enroll another iShield Key';
-  showFlash(result.ok ? `iShield key enrolled for ${displayName}` : 'Key enrolled, but check the warnings', result.ok ? 'success' : 'failure');
+  btn.textContent = 'Enroll another FIDO Key';
+  showFlash(result.ok ? `FIDO key enrolled for ${displayName}` : 'Key enrolled, but check the warnings', result.ok ? 'success' : 'failure');
   await showQr(phone);
 }
 

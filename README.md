@@ -48,7 +48,7 @@ Phase 1: TRUST DEVICE
   camera reads their badge QR and the user database answers with their
   name, phone and email. A badge the database does not know opens a short
   form instead (name, phone, email), and Manually Enter User opens that
-  form without a badge; Register adds the attendee. Enroll iShield Key
+  form without a badge; Register adds the attendee. Enroll FIDO Key
   then writes the phone number onto their key as a discoverable credential
   (key-enroll.js), and a second QR opens the demo
   on their phone with the number already in the User ID field: Login
@@ -792,9 +792,11 @@ Demo-swissbit/
                           the User ID off an iShield key and the partner's preset and custom point
                           buttons move the balance through the user API
   partners/            -- The tile logos (Google, RSA, Swissbit, HID) and the Twemoji ice cream
-  landing.html/.css    -- Conference landing page in the "Death to Passwords" party theme: sponsor strip,
-                          neon sign, Login and Leader Board links; its own stylesheet, no script
-  landing/             -- The landing page's entry photo, neon sign and FIDO Alliance logo
+  landing.html/.css    -- Conference landing page: neon sign, Login and Leader Board links, no script;
+                          landing.css is the hero alone
+  party.css            -- The "Death to Passwords" party theme (background photo, top bar, sponsor
+                          strip, translucent card), scoped to body.party; landing.html and index.html
+  landing/             -- The entry photo, neon sign and FIDO Alliance logo
   api/db.js            -- Vercel function: proxy to the user API (/db/*)
   api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
   zsm_app_config.json  -- Ideem application credentials

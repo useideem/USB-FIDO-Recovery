@@ -1,6 +1,6 @@
 /**
  * partner.js -- A partner booth: unlock with the shared password, pick the
- * partner, identify an attendee by their iShield key, then move points on
+ * partner, identify an attendee by their FIDO key, then move points on
  * their account
  *
  * The page opens locked. The one password every booth shares (PARTNER_PASSWORD,
@@ -353,7 +353,7 @@ async function identify() {
   $('account-section').hidden = true;
   btn.disabled = true;
   btn.classList.add('loading');
-  showFlash('Insert the iShield key and touch it when the browser asks...', 'info', 60000);
+  showFlash('Insert the FIDO key and touch it when the browser asks...', 'info', 60000);
   try {
     const result = await webauthnIdentify();
     if (!result.success) {

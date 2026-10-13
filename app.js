@@ -84,7 +84,7 @@ function phoneDigits(value) {
 }
 
 /**
- * Reconciles the User ID on screen with the identity the iShield key just
+ * Reconciles the User ID on screen with the identity the FIDO key just
  * proved. The key is the authority: it hands back the user handle stored in
  * the credential, and the screen has to agree with it.
  *
@@ -914,7 +914,7 @@ function showScreen(screenId) {
 async function updateUI() {
   const user = getUsername();
 
-  // Check iShield enrollment marker (localStorage — may be absent on Device B)
+  // Check FIDO key enrollment marker (localStorage — may be absent on Device B)
   const hasIShield = user ? hasLocalEnrollmentMarker(user) : false;
 
   // Check ZSM & Passkey status (SDK)
@@ -1034,8 +1034,8 @@ async function trustDevice() {
   btn.setAttribute('aria-disabled', 'true');
 
   try {
-    // Step 1: Enroll iShield USB key (raw WebAuthn)
-    showFlash('flash-status', 'Insert your iShield USB key...', 'success');
+    // Step 1: Enroll FIDO USB key (raw WebAuthn)
+    showFlash('flash-status', 'Insert your FIDO USB key...', 'success');
     try {
       await webauthnEnroll(user);
     } catch (err) {
@@ -1043,14 +1043,14 @@ async function trustDevice() {
         err.name === 'NotAllowedError' ? 'Cancelled or timed out' :
         err.name === 'SecurityError' ? 'Security error — try HTTPS or localhost' :
         err.name === 'InvalidStateError' ? 'Key already registered for this user' :
-        err.message || 'iShield enrollment failed',
+        err.message || 'FIDO key enrollment failed',
         'failure'
       );
       return;
     }
 
     if (!hasLocalEnrollmentMarker(user)) {
-      showFlash('flash-status', 'iShield enrollment failed or cancelled', 'failure');
+      showFlash('flash-status', 'FIDO key enrollment failed or cancelled', 'failure');
       return;
     }
 
@@ -1118,18 +1118,18 @@ async function login(btn = document.getElementById('login-btn')) {
 
     if (needsBinding) {
       const action = await showPopup(
-        'This device needs to be bound. Insert your iShield USB key.'
+        'This device needs to be bound. Insert your FIDO USB key.'
       );
       if (action === 'cancel') return;
 
-      // Step 1: iShield authentication (discoverable credential)
-      showFlash('flash-status', 'Touch your iShield USB key...', 'success', 60000);
+      // Step 1: FIDO key authentication (discoverable credential)
+      showFlash('flash-status', 'Touch your FIDO USB key...', 'success', 60000);
       const ishieldResult = await webauthnAuthenticate(user);
       if (!ishieldResult.success) {
         showFlash('flash-status',
           ishieldResult.error?.name === 'NotAllowedError'
             ? 'Cancelled or timed out'
-            : ishieldResult.error?.message || 'iShield authentication failed',
+            : ishieldResult.error?.message || 'FIDO key authentication failed',
           'failure');
         return;
       }
@@ -1182,7 +1182,7 @@ async function login(btn = document.getElementById('login-btn')) {
 
     // If suspended, require iShield + Passkeys+ to reactivate
     if (isSuspended(user)) {
-      showFlash('flash-status', 'Device suspended — touch your iShield USB key to reactivate', 'success', 60000);
+      showFlash('flash-status', 'Device suspended — touch your FIDO USB key to reactivate', 'success', 60000);
 
       const ishieldResult = await webauthnAuthenticate(user);
       if (!ishieldResult.success) {
@@ -1361,7 +1361,7 @@ async function suspendDevice() {
 
   if (isSuspended(user)) return;
 
-  const action = await showPopup('Suspend Passkeys+ login? You will need your iShield USB key to reactivate.');
+  const action = await showPopup('Suspend Passkeys+ login? You will need your FIDO USB key to reactivate.');
   if (action === 'cancel') return;
 
   setSuspended(user, true);

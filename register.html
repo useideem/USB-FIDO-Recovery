@@ -9,11 +9,14 @@
 <body>
 
   <!-- Header -->
-  <header class="header">
-    <div class="logo-row">
-      <img src="./swissbit_logo.png" alt="Swissbit" class="logo logo-swissbit">
-      <span class="logo-divider"></span>
-      <img src="./ideem-logo.png" alt="Ideem" class="logo logo-ideem">
+  <header class="header header-logos">
+    <!-- The four sponsors (the partner booth logos) and Ideem -->
+    <div class="logo-row logo-row-wide">
+      <img src="./partners/swissbit.png" alt="Swissbit" class="logo">
+      <img src="./partners/hid.png" alt="HID" class="logo">
+      <img src="./partners/google.png" alt="Google" class="logo logo-google">
+      <img src="./partners/rsa.png" alt="RSA" class="logo">
+      <img src="./ideem-logo.png" alt="Ideem" class="logo">
     </div>
     <p class="subtitle">Register with your conference badge</p>
   </header>
@@ -86,16 +89,16 @@
       <p class="en-warning" id="attendee-note" hidden></p>
     </section>
 
-    <!-- ENROLL: put the number on an iShield key (key-enroll.js) -->
+    <!-- ENROLL: put the number on an FIDO key (key-enroll.js) -->
     <section class="rg-step" id="enroll-section" aria-labelledby="enroll-title" hidden>
-      <h2 class="ft-section-title" id="enroll-title">Step 3: Enroll iShield Key</h2>
-      <p class="ft-hint">Insert the attendee's iShield key, press the button, then touch the key when the browser asks. The key must have no PIN set: a PIN-less key answers with a touch on any phone, while a key with a PIN asks every one of them for it.</p>
+      <h2 class="ft-section-title" id="enroll-title">Step 3: Enroll FIDO Key</h2>
+      <p class="ft-hint">Insert the attendee's FIDO key, press the button, then touch the key when the browser asks. The key must have no PIN set: a PIN-less key answers with a touch on any phone, while a key with a PIN asks every one of them for it.</p>
       <!-- Shown only in desktop Chrome, which cannot do a PIN-less create -->
       <p class="en-warning" id="chrome-warning" hidden>
         Desktop Chrome makes the key set a PIN before it will store a passkey, and every
         device that reads the key afterwards will demand that PIN. Enroll in Safari instead.
       </p>
-      <button id="enroll-key-btn" type="button" class="btn btn-primary">Enroll iShield Key</button>
+      <button id="enroll-key-btn" type="button" class="btn btn-primary">Enroll FIDO Key</button>
       <!-- Anything that would break retrieval stays in the open -->
       <div id="enroll-warnings"></div>
     </section>
@@ -103,7 +106,7 @@
     <!-- SCAN: the number now on the key, handed to the demo on the attendee's phone -->
     <section class="ft-section en-qr rg-step" id="qr-section" aria-labelledby="qr-title" hidden>
       <h2 class="ft-section-title" id="qr-title">Step 4: Scan with your phone</h2>
-      <p class="ft-hint">The demo opens with your phone number as the User ID. Press <b>Login</b> there and touch your iShield key when the phone asks.</p>
+      <p class="ft-hint">The demo opens with your phone number as the User ID. Press <b>Login</b> there and touch your FIDO key when the phone asks.</p>
       <div class="en-qr-code" id="qr-code" role="img" aria-label="QR code that opens the demo for this phone number"></div>
       <a class="en-qr-link" id="qr-link" href="#" target="_blank" rel="noopener"></a>
       <p class="en-warning en-qr-note" id="qr-note" hidden></p>
@@ -114,7 +117,6 @@
   <!-- Footer -->
   <footer class="footer ft-footer">
     <p class="ft-hint" id="browser-info">Checking which browser this is...</p>
-    <a href="./fido-test.html">Key tester</a>
     <a href="./index.html">Back to the demo</a>
   </footer>
 

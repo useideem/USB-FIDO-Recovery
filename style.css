@@ -112,6 +112,27 @@ body {
   background: var(--color-border-strong);
 }
 
+/* Five logos across (register.html): the four sponsors and Ideem, one row
+   on a laptop, wrapping on a phone */
+.header-logos {
+  max-width: 520px;
+}
+
+.logo-row-wide {
+  flex-wrap: wrap;
+  gap: 10px 18px;
+}
+
+.logo-row-wide .logo {
+  height: 28px;
+  max-width: 96px;
+}
+
+/* The Google wordmark fills its image where the others carry padding */
+.logo-row-wide .logo-google {
+  height: 20px;
+}
+
 .header h1 {
   font-size: 1.375rem;
   font-weight: 700;

@@ -3,8 +3,10 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>iShield Key + ZSM | Hardware WebAuthn Demo</title>
+  <title>FIDO Key + ZSM | Hardware WebAuthn Demo</title>
   <link rel="stylesheet" href="./style.css">
+  <!-- The party theme (landing.html's look) layered over the demo's styles -->
+  <link rel="stylesheet" href="./party.css">
   <script type="importmap">
   {
     "imports": {
@@ -14,15 +16,29 @@
   }
   </script>
 </head>
-<body>
+<body class="party">
+
+  <!-- Top bar and sponsor strip, as on landing.html (party.css) -->
+  <div class="topbar">
+    <div class="container">
+      <a class="brand" href="./landing.html">Authenticate 2026 • Swissbit • Ideem</a>
+    </div>
+  </div>
+  <section class="sponsors" aria-label="Partners and sponsors">
+    <div class="sponsor-track">
+      <img src="./partners/swissbit.png" alt="Swissbit">
+      <img src="./partners/hid.png" alt="HID">
+      <img src="./partners/google.png" alt="Google" class="logo-google">
+      <img src="./partners/rsa.png" alt="RSA">
+      <img src="./ideem-logo.png" alt="Ideem">
+    </div>
+  </section>
+
+  <!-- The demo: header, card and footer, centred as style.css lays them out -->
+  <div class="page">
 
   <!-- Header -->
   <header class="header">
-    <div class="logo-row">
-      <img src="./swissbit_logo.png" alt="Swissbit" class="logo logo-swissbit">
-      <span class="logo-divider"></span>
-      <img src="./ideem-logo.png" alt="Ideem" class="logo logo-ideem">
-    </div>
     <p class="subtitle">Extending iShield to Trusted Devices</p>
   </header>
 
@@ -89,8 +105,8 @@
 
       <div class="challenge-display" id="ishield-challenge-display" hidden>
         <div class="challenge-section-header">
-          <span class="challenge-section-label">iShield Key</span>
-          <img src="./swissbit.png" alt="iShield" id="icon-ishield" class="auth-icon">
+          <span class="challenge-section-label">FIDO Key</span>
+          <img src="./swissbit.png" alt="FIDO Key" id="icon-ishield" class="auth-icon">
         </div>
         <details id="ishield-challenge-details">
           <summary>Challenge: <span id="ishield-challenge-preview" class="challenge-value">--</span><button class="btn-copy" aria-label="Copy value" onclick="event.stopPropagation()">
@@ -208,7 +224,7 @@
       <ol class="sna-steps" id="sna-steps" hidden></ol>
       <div id="sna-status" class="flash" role="status" aria-live="polite"></div>
       <ul class="sna-indicators" id="sna-indicators" hidden>
-        <li class="sna-indicator" id="sna-ind-ishield"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">iShield</span><span class="sna-indicator-state" id="sna-ind-ishield-state"></span></li>
+        <li class="sna-indicator" id="sna-ind-ishield"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">FIDO Key</span><span class="sna-indicator-state" id="sna-ind-ishield-state"></span></li>
         <li class="sna-indicator" id="sna-ind-number"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Number Verified</span><span class="sna-indicator-state" id="sna-ind-number-state"></span></li>
         <li class="sna-indicator" id="sna-ind-device"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Device Bound</span><span class="sna-indicator-state" id="sna-ind-device-state"></span></li>
         <li class="sna-indicator" id="sna-ind-passkey"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Passkey</span><span class="sna-indicator-state" id="sna-ind-passkey-state"></span></li>
@@ -222,7 +238,7 @@
     <!-- Status pills — always visible. The four indicators the enrollment
          ends on, in that order, then the Passkeys+ state that drives Suspend. -->
     <div class="status-pills">
-      <span class="pill">iShield: <b id="ishield-status">--</b></span>
+      <span class="pill">FIDO Key: <b id="ishield-status">--</b></span>
       <span class="pill">Number Verified: <b id="number-status">--</b></span>
       <span class="pill">Device Bound: <b id="zsm-status">--</b></span>
       <span class="pill">Passkey: <b id="passkey-status">--</b></span>
@@ -250,6 +266,8 @@
     <button id="suspend-device" class="btn btn-warning-small" disabled>Suspend Device</button>
     <button id="reset-device" class="btn btn-danger-small">Reset Device</button>
   </footer>
+
+  </div>
 
   <!-- Screen reader announcements -->
   <div id="screen-announcer" class="sr-only" aria-live="assertive"></div>
