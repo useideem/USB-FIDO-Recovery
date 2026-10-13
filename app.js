@@ -37,7 +37,8 @@ import {
   getPasskeysToggle,
   setPasskeysToggle,
   webauthnEnroll,
-  webauthnAuthenticate
+  webauthnAuthenticate,
+  webauthnIdentify
 } from './ishield.js';
 
 import {
@@ -85,25 +86,31 @@ function phoneDigits(value) {
 }
 
 /**
- * Reconciles the User ID on screen with the identity the FIDO key just
- * proved. The key is the authority: it hands back the user handle stored in
- * the credential, and the screen has to agree with it.
+ * Reconciles the User ID on screen with the identity the key just proved.
+ * The key is the authority: it hands back the user handle stored in the
+ * credential, and the screen has to agree with it.
  *
- * Returns null when they are different people -- the caller must stop rather
- * than carry on under a name the key never vouched for. Otherwise it returns
+ * Returns null when they are different people, or when the key returned no
+ * handle at all (then nothing vouches for the typed value); the caller stops
+ * either way, and keyMismatchMessage says which it was. Otherwise it returns
  * the key's own spelling and writes it into the field, so after a successful
- * touch the User ID on screen IS the credential on the key. A credential that
- * returns no user handle (the old non-discoverable kind) leaves the typed
- * value alone; there is nothing to compare it against.
+ * touch the User ID on screen IS the credential on the key.
  */
 function reconcileUserId(typed, fromKey) {
-  if (!fromKey) return typed;
+  if (!fromKey) return null;
   if (typed !== fromKey && (!phoneDigits(typed) || phoneDigits(typed) !== phoneDigits(fromKey))) {
     return null;
   }
   document.getElementById('username').value = fromKey;
   localStorage.setItem('username', fromKey);
   return fromKey;
+}
+
+/** The flash for a reconcileUserId that returned null. */
+function keyMismatchMessage(typed, fromKey) {
+  return fromKey
+    ? `This key belongs to "${fromKey}", but the User ID box says "${typed}". Enter the ID that matches the key, or use that person's key.`
+    : 'This key carries no User ID. Enroll it on the registration page first.';
 }
 
 // ---------------------------------------------------------------------------
@@ -717,6 +724,7 @@ function ensureNumberVerified(user) {
     snaResolve = resolve;
     renderSna({ user, phase: 'ready' });
     showScreen('SNA');
+    refreshPills(user);  // the enroll has just run; the pills under the card should say so
   });
 }
 
@@ -744,6 +752,7 @@ async function runSnaCheck() {
     });
     if (result.match) {
       setNumberVerified(user, result);
+      await refreshPills(user);  // Phone# Verified turns true under the card as well
       await renderSna({ user, phase: 'verified' });
     } else {
       renderSna({ user, phase: 'failed', message: SNA_FAILURE_MESSAGES[result.reason] || 'Number not verified.' });
@@ -914,15 +923,16 @@ function showScreen(screenId) {
 }
 
 // ---------------------------------------------------------------------------
-// updateUI — detect state and show correct screen + pills
+// refreshPills — the five status pills under the card, from what this device
+// and the SDK hold for `user`. updateUI draws them on every screen change;
+// the SNA screen draws them too, since the enroll has just run when it comes
+// up and the number check changes the second pill while it stays up.
 // ---------------------------------------------------------------------------
-async function updateUI() {
-  const user = getUsername();
-
-  // Check FIDO key enrollment marker (localStorage — may be absent on Device B)
+async function refreshPills(user) {
+  // The key marker (localStorage — may be absent on Device B)
   const hasIShield = user ? hasLocalEnrollmentMarker(user) : false;
 
-  // Check ZSM & Passkey status (SDK)
+  // ZSM & Passkey status (SDK)
   let hasZSM = false;
   let hasPasskey = false;
   if (user) {
@@ -936,7 +946,6 @@ async function updateUI() {
     } catch (_) {}
   }
 
-  // Update status pills
   function setPill(el, value) {
     el.textContent = value;
     const pill = el.closest('.pill');
@@ -947,19 +956,29 @@ async function updateUI() {
     else pill.classList.add('pill-neutral');
   }
 
-  // The four indicators the enrollment ends on: iShield (local marker),
-  // Number Verified (the SNA marker), Device Bound (the ZSM credential),
+  // The four indicators the enrollment ends on: USB Key (local marker),
+  // Phone# Verified (the SNA marker), Device Bound (the ZSM credential),
   // Passkey (the Passkeys+ credential).
   setPill(document.getElementById('ishield-status'), !user ? '--' : (hasIShield ? 'true' : 'unknown'));
   setPill(document.getElementById('number-status'), !user ? '--' : (isNumberVerified(user) ? 'true' : 'false'));
   setPill(document.getElementById('zsm-status'), !user ? '--' : (hasZSM ? 'true' : 'false'));
   setPill(document.getElementById('passkey-status'), !user ? '--' : (hasPasskey ? 'true' : 'false'));
 
-  // Passkeys+ pill — iShield is no longer required (credential lives on the key)
+  // Passkeys+ pill — the key is no longer required (credential lives on the key)
   const fullyEnrolled = hasZSM && hasPasskey;
   const suspended = isSuspended(user);
   const ppStatus = !user || !fullyEnrolled ? 'Not Enrolled' : (suspended ? 'Suspended' : 'Active');
   setPill(document.getElementById('passkeys-plus-status'), ppStatus);
+
+  return { hasIShield, hasZSM, hasPasskey, fullyEnrolled, suspended };
+}
+
+// ---------------------------------------------------------------------------
+// updateUI — detect state and show correct screen + pills
+// ---------------------------------------------------------------------------
+async function updateUI() {
+  const user = getUsername();
+  const { hasZSM, hasPasskey, fullyEnrolled, suspended } = await refreshPills(user);
 
   // Suspend button — enabled only when fully enrolled and not already suspended
   document.getElementById('suspend-device').disabled = !(fullyEnrolled && !suspended);
@@ -1027,10 +1046,49 @@ async function updateUI() {
 }
 
 // ---------------------------------------------------------------------------
-// trustDevice — enroll USB key then ZSM+Passkeys
+// bindDevice — the steps after the key has vouched for `user`: the ZSM
+// enroll (with Passkeys+ if asked), the local key marker, the number check,
+// then the actions screen. Enter Game lands here from both screens once the
+// key holds the identity in the box.
+// ---------------------------------------------------------------------------
+async function bindDevice(user, usePasskeys) {
+  showFlash('flash-status', 'Binding device...', 'success');
+  await initializeZSMClient(user);
+  const enrollResult = await enroll(user, usePasskeys);
+  if (!enrollResult || enrollResult === false || enrollResult instanceof Error) {
+    showFlash('flash-status', 'Device binding failed', 'failure');
+    return false;
+  }
+
+  // The local enrollment marker, so the USB Key pill shows 'true'
+  localStorage.setItem(ENROLLMENT_MARKER_PREFIX + user, JSON.stringify({
+    boundFromRemote: true,
+    createdAt: new Date().toISOString()
+  }));
+
+  // The simulated SNA number check, ending on the four indicators
+  if (!(await ensureNumberVerified(user))) {
+    showFlash('flash-status', 'Number not verified. Log in to try again.', 'failure', 4000);
+    await updateUI();
+    return false;
+  }
+
+  STATE.loginID = user;
+  updateAuthIcons({ ishield: true, zsm: true, passkeys: usePasskeys });
+  showFlash('flash-status', 'Device bound successfully', 'success');
+  await updateUI();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// trustDevice — Enter Game with New on. The key is asked who it is first: one
+// that already holds an identity must hold the one in the box, and the device
+// is then bound to it (no second credential is written). Only a key that
+// answers with nothing (NotAllowedError: no credential for this site) gets a
+// credential written for the typed User ID, then ZSM + Passkeys+.
 // ---------------------------------------------------------------------------
 async function trustDevice() {
-  const user = getUsername();
+  let user = getUsername();  // replaced by the key's own spelling when it already holds one
   if (!user) return;
 
   const btn = document.getElementById('trust-device-btn');
@@ -1039,8 +1097,31 @@ async function trustDevice() {
   btn.setAttribute('aria-disabled', 'true');
 
   try {
-    // Step 1: Enroll FIDO USB key (raw WebAuthn)
-    showFlash('flash-status', 'Insert your USB key...', 'success');
+    // Step 1: ask the key who it is
+    showFlash('flash-status', 'Touch your USB key...', 'success', 60000);
+    const identity = await webauthnIdentify();
+    if (identity.success) {
+      if (identity.clientDataHash) {
+        updateIShieldChallengeDisplay(identity.clientDataHash, identity.signatureHex);
+      }
+      const confirmed = reconcileUserId(user, identity.authenticatedUser);
+      if (!confirmed) {
+        showFlash('flash-status', keyMismatchMessage(user, identity.authenticatedUser), 'failure', 8000);
+        return;
+      }
+      user = confirmed;
+      // The key already vouches for this User ID: bind this device to it
+      await bindDevice(user, document.getElementById('use-passkeys-toggle').checked);
+      return;
+    }
+    if (identity.error?.name !== 'NotAllowedError') {
+      showFlash('flash-status', identity.error?.message || 'USB key authentication failed', 'failure');
+      return;
+    }
+
+    // Step 2: nothing on the key for this site (or the prompt was dismissed):
+    // write a credential for the typed User ID
+    showFlash('flash-status', 'No identity on this key yet. Touch it again to write one...', 'success', 60000);
     try {
       await webauthnEnroll(user);
     } catch (err) {
@@ -1048,18 +1129,18 @@ async function trustDevice() {
         err.name === 'NotAllowedError' ? 'Cancelled or timed out' :
         err.name === 'SecurityError' ? 'Security error — try HTTPS or localhost' :
         err.name === 'InvalidStateError' ? 'Key already registered for this user' :
-        err.message || 'FIDO key enrollment failed',
+        err.message || 'USB key enrollment failed',
         'failure'
       );
       return;
     }
 
     if (!hasLocalEnrollmentMarker(user)) {
-      showFlash('flash-status', 'FIDO key enrollment failed or cancelled', 'failure');
+      showFlash('flash-status', 'USB key enrollment failed or cancelled', 'failure');
       return;
     }
 
-    // Step 2: Enroll ZSM + Passkeys+
+    // Step 3: Enroll ZSM + Passkeys+
     const usePasskeys = document.getElementById('use-passkeys-toggle').checked;
     showFlash('flash-status', usePasskeys ? 'Enrolling device with ZSM + Passkeys+...' : 'Enrolling device with ZSM...', 'success');
     await initializeZSMClient(user);
@@ -1135,9 +1216,7 @@ async function login(btn = document.getElementById('login-btn')) {
     // number is adopted, so what is on screen is literally what is on the key.
     const confirmed = reconcileUserId(user, ishieldResult.authenticatedUser);
     if (!confirmed) {
-      showFlash('flash-status',
-        `This key belongs to "${ishieldResult.authenticatedUser}", but the User ID box says "${user}". Enter the ID that matches the key, or use that person's key.`,
-        'failure', 8000);
+      showFlash('flash-status', keyMismatchMessage(user, ishieldResult.authenticatedUser), 'failure', 8000);
       return;
     }
     user = confirmed;
@@ -1157,30 +1236,7 @@ async function login(btn = document.getElementById('login-btn')) {
 
     // An unbound device: bind it (ZSM enroll, with Passkeys+ if the toggle is on)
     if (!hasLocalZSM) {
-      showFlash('flash-status', 'Binding device...', 'success');
-      const enrollResult = await enroll(user, usePasskeys);
-      if (!enrollResult || enrollResult === false || enrollResult instanceof Error) {
-        showFlash('flash-status', 'Device binding failed', 'failure');
-        return;
-      }
-
-      // The local enrollment marker, so the USB Key pill shows 'true'
-      localStorage.setItem(ENROLLMENT_MARKER_PREFIX + user, JSON.stringify({
-        boundFromRemote: true,
-        createdAt: new Date().toISOString()
-      }));
-
-      // The simulated SNA number check, ending on the four indicators
-      if (!(await ensureNumberVerified(user))) {
-        showFlash('flash-status', 'Number not verified. Log in to try again.', 'failure', 4000);
-        await updateUI();
-        return;
-      }
-
-      STATE.loginID = user;
-      updateAuthIcons({ ishield: true, zsm: true, passkeys: usePasskeys });
-      showFlash('flash-status', 'Device bound successfully', 'success');
-      await updateUI();
+      await bindDevice(user, usePasskeys);
       return;
     }
 
