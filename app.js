@@ -228,9 +228,10 @@ const PROTECTED_ACTION_LABELS = {
 // User database -- the account behind the User ID
 //
 // The Ideem user API (docs/user-api.md) holds one record per attendee, keyed
-// by the bare-digit phone number that is also the credential on the key. The
-// two money actions above debit that record through its balance endpoint
-// once the step-up has succeeded. The other two actions only step up.
+// by the bare-digit phone number that is also the credential on the key. Its
+// balance is points, the same number the partner booths credit. The actions
+// with a cost debit that record through its balance endpoint once the step-up
+// has succeeded. The other actions only step up.
 //
 // The API is reached through the site's own /db proxy (dev-server.mjs
 // locally, api/db.js on Vercel) because it sends no CORS headers.
@@ -238,18 +239,23 @@ const PROTECTED_ACTION_LABELS = {
 const DB_BASE = './db';
 
 /**
- * What each money action costs. The registration form never asks for an amount, so
- * the demo charges a fixed one per action. Actions missing from this table
- * step up and stop; they touch no balance. P2P Contact Exchange branches to
- * its own screen before this table is consulted, so its entry is unused
- * until it is decided whether an exchange should cost anything.
+ * What each action costs, in points. The registration form never asks for an
+ * amount, so the demo charges a fixed one per action. Actions missing from
+ * this table step up and stop; they touch no balance. P2P Contact Exchange
+ * branches to its own screen before this table is consulted, so its entry is
+ * unused until it is decided whether an exchange should cost anything.
  */
 const ACTION_AMOUNTS = {
   'authenticate': 25,
   'p2p-contact-exchange': 100
 };
 
-const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+const pointsFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+
+/** "1,030 pts", "12.5 pts": the balance and every charge on this page, as on the partner page. */
+function formatPoints(n) {
+  return `${pointsFormat.format(n)} pts`;
+}
 
 /** The record for the logged-in user, or null when none is on file. */
 let account = null;
@@ -295,13 +301,13 @@ function renderBalance() {
   const value = document.getElementById('balance-value');
   if (!line || !value) return;
   line.hidden = !account;
-  value.textContent = account ? money.format(account.balance) : '--';
+  value.textContent = account ? formatPoints(account.balance) : '--';
 }
 
 /**
  * Moves the balance by `amount` through PATCH /users/:id/balance. The API
- * ADDS the amount it is sent (a charge is a negative number), rounds to
- * cents, and will take the balance below zero without complaint, so the
+ * ADDS the amount it is sent (a charge is a negative number), rounds to two
+ * decimals, and will take the balance below zero without complaint, so the
  * overdraft check lives in the caller, not here. It is also not idempotent:
  * a timed-out request may have applied, so the caller must never retry.
  *
@@ -319,7 +325,7 @@ async function adjustBalance(userId, amount) {
 }
 
 /**
- * Charges a money action to the logged-in user's account after the step-up
+ * Charges an action's points to the logged-in user's account after the step-up
  * has been authorized. The balance is re-read first so the overdraft check
  * is against what the server holds now, not what this page last saw.
  *
@@ -333,13 +339,13 @@ async function settleAction(user, actionLabel, amount) {
   if (account.balance < amount) {
     return {
       state: 'failure',
-      message: `${actionLabel} Declined: ${money.format(amount)} exceeds balance of ${money.format(account.balance)}`
+      message: `${actionLabel} Declined: ${formatPoints(amount)} exceeds balance of ${formatPoints(account.balance)}`
     };
   }
   try {
     account.balance = await adjustBalance(account.userId, -amount);
     renderBalance();
-    return { state: 'success', message: `${actionLabel} Authorized: ${money.format(amount)} charged` };
+    return { state: 'success', message: `${actionLabel} Authorized: ${formatPoints(amount)} charged` };
   } catch (err) {
     // The charge may or may not have landed. Re-read rather than retry, so a
     // slow server never charges twice.
@@ -998,7 +1004,7 @@ async function updateUI() {
     } else {
       showScreen('ACTIONS');
     }
-    // Load the account once per login; the money actions re-read it themselves.
+    // Load the account once per login; the actions with a cost re-read it themselves.
     if (accountFor !== STATE.loginID) await refreshAccount(STATE.loginID);
   } else if (snaResolve) {
     // A number check is waiting for its Verify or Continue: nothing else
@@ -1307,14 +1313,14 @@ async function handleProtectedAction(actionKey) {
     return;
   }
 
-  // The step-up is what the action protects; a money action then settles
-  // against the user database. The other actions are done at this point.
+  // The step-up is what the action protects; an action with a cost then
+  // settles against the user database. The other actions are done at this point.
   const amount = ACTION_AMOUNTS[actionKey];
   if (amount === undefined) {
     showFlash('action-status', `${actionLabel} Authorized`, 'success', 2000);
     return;
   }
-  showFlash('action-status', `${actionLabel} Authorized, charging ${money.format(amount)}...`, 'success', 10000);
+  showFlash('action-status', `${actionLabel} Authorized, charging ${formatPoints(amount)}...`, 'success', 10000);
   const outcome = await settleAction(STATE.loginID, actionLabel, amount);
   showFlash('action-status', outcome.message, outcome.state, 4000);
 }

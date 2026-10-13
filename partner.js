@@ -32,8 +32,8 @@
  * slow one may have landed): the record is re-read and the balance shown is
  * whatever the server now holds. The record is read by bare-digit phone and
  * the PATCH goes by userId, never by phone, since duplicate numbers are
- * possible. The balance is one number: this page calls it points, the demo
- * page (app.js) shows the same field as dollars.
+ * possible. The balance is points on this page and on the demo page (app.js),
+ * which charges its actions from the same field.
  *
  * BROWSERS: the open get is what phones do (iOS in any browser, Android
  * Chrome 128+) and Safari on a Mac. Desktop Chrome refuses it for a PIN-less
