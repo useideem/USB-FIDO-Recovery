@@ -792,6 +792,9 @@ Demo-swissbit/
                           the User ID off an iShield key and the partner's preset and custom point
                           buttons move the balance through the user API
   partners/            -- The tile logos (Google, RSA, Swissbit, HID) and the Twemoji ice cream
+  landing.html/.css    -- Conference landing page in the "Death to Passwords" party theme: sponsor strip,
+                          neon sign, Login and Leader Board links; its own stylesheet, no script
+  landing/             -- The landing page's entry photo, neon sign and FIDO Alliance logo
   api/db.js            -- Vercel function: proxy to the user API (/db/*)
   api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
   zsm_app_config.json  -- Ideem application credentials

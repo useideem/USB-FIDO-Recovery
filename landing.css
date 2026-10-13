@@ -1,0 +1,228 @@
+/* landing.css -- the conference landing page (landing.html) alone.
+ *
+ * A dark "Death to Passwords" party theme after the API owner's welcome page
+ * at sbit.authconcepts.com:3099: the entry photo as the page background, a
+ * white sponsor strip, the neon sign, and maroon buttons with a gold edge.
+ * It shares nothing with style.css on purpose; the demo pages keep their
+ * light theme. */
+
+:root {
+  --ink: #080e10;
+  --gold: #efd2a0;
+  --cream: #fff4e4;
+  --cream-muted: #d2c8bd;
+  --maroon: #791c31;
+  --maroon-hover: #982540;
+  --radius: 12px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--cream);
+  background: var(--ink) url("./landing/entry.jpg") center top / cover no-repeat;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+a:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 5px;
+}
+
+/* ----- Top bar ----- */
+
+.topbar {
+  padding: 14px 0;
+  background: rgba(8, 14, 16, 0.94);
+  border-bottom: 1px solid rgba(239, 210, 160, 0.25);
+}
+
+.topbar .container {
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+.brand {
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0.2px;
+  color: #fff;
+}
+
+/* ----- Sponsor strip: the four partner logos on white ----- */
+
+.sponsors {
+  padding: 16px 0;
+  background: #fff;
+}
+
+.sponsor-track {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-evenly;
+  gap: 20px 32px;
+  width: 100%;
+  padding: 0 24px;
+}
+
+.sponsor-track img {
+  display: block;
+  height: 40px;
+  width: auto;
+  max-width: 120px;
+  object-fit: contain;
+}
+
+/* ----- Hero: eyebrow, neon sign, intro, the two links ----- */
+
+.hero {
+  background: linear-gradient(180deg, rgba(8, 14, 16, 0.25), rgba(8, 14, 16, 0.1) 60%, rgba(8, 14, 16, 0.87));
+}
+
+.hero > .container {
+  padding-top: 32px;
+  padding-bottom: 56px;
+}
+
+.welcome {
+  max-width: 720px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.eyebrow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+
+.eyebrow img {
+  display: block;
+  width: 40%;
+  max-width: 260px;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.sign {
+  margin: 20px auto 24px;
+}
+
+.sign img {
+  display: block;
+  width: 100%;
+  max-width: 720px;
+  height: auto;
+  margin: 0 auto;
+}
+
+.intro {
+  margin: 0 0 24px;
+  font-size: clamp(1rem, 2.5vw, 1.25rem);
+  text-shadow: 0 2px 6px #000;
+}
+
+.links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 16px;
+}
+
+.party-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  min-width: 240px;
+  padding: 18px 28px;
+  font-size: clamp(1.1rem, 3vw, 1.5rem);
+  font-weight: 800;
+  line-height: 1.3;
+  text-decoration: none;
+  color: var(--cream);
+  background: var(--maroon);
+  border: 1px solid var(--gold);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.4);
+}
+
+.party-btn:hover {
+  background: var(--maroon-hover);
+}
+
+.party-btn-alt {
+  background: rgba(8, 14, 16, 0.87);
+}
+
+.party-btn-alt:hover {
+  background: #28161b;
+}
+
+/* ----- The games: a dark panel below the hero, text to come ----- */
+
+.games {
+  padding-top: 0;
+}
+
+.panel {
+  padding: 20px 24px;
+  background: rgba(8, 14, 16, 0.94);
+  border: 1px solid rgba(239, 210, 160, 0.4);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+}
+
+.panel h2 {
+  margin: 0 0 8px;
+  font-size: 1.25rem;
+}
+
+.panel p {
+  margin: 0;
+  color: var(--cream-muted);
+}
+
+/* ----- Phones ----- */
+
+@media (max-width: 600px) {
+  body {
+    background-position: 56% top;
+  }
+
+  .hero > .container {
+    padding: 20px 16px 40px;
+  }
+
+  .eyebrow {
+    font-size: 1rem;
+    letter-spacing: 0.08em;
+  }
+
+  .links {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .party-btn {
+    min-width: 0;
+  }
+}
