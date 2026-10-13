@@ -5,16 +5,31 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Partner | Swissbit + Ideem</title>
   <link rel="stylesheet" href="./style.css">
+  <!-- The party theme (landing.html's look) layered over the shared styles -->
+  <link rel="stylesheet" href="./party.css">
 </head>
-<body>
+<body class="party">
 
-  <!-- Header -->
-  <header class="header">
-    <div class="logo-row">
-      <img src="./swissbit_logo.png" alt="Swissbit" class="logo logo-swissbit">
-      <span class="logo-divider"></span>
-      <img src="./ideem-logo.png" alt="Ideem" class="logo logo-ideem">
+  <!-- Top bar and sponsor strip, as on landing.html (party.css) -->
+  <div class="topbar">
+    <div class="container">
+      <a class="brand" href="./landing.html">Authenticate 2026 • Death to Passwords</a>
     </div>
+  </div>
+  <section class="sponsors" aria-label="Partners and sponsors">
+    <div class="sponsor-track">
+      <img src="./partners/swissbit.png" alt="Swissbit">
+      <img src="./partners/hid.png" alt="HID">
+      <img src="./partners/google.png" alt="Google" class="logo-google">
+      <img src="./partners/rsa.png" alt="RSA">
+      <img src="./ideem-logo.png" alt="Ideem" class="logo-ideem">
+    </div>
+  </section>
+
+  <!-- The page: heading, card and footer, centred as style.css lays them out -->
+  <div class="page">
+
+  <header class="header">
     <p class="subtitle">Partner booth</p>
   </header>
 
@@ -105,6 +120,8 @@
     <a href="./register.html">Register</a>
     <a href="./index.html">Login</a>
   </footer>
+
+  </div>
 
   <script type="module" src="./partner.js"></script>
 </body>
