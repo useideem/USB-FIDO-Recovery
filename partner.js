@@ -1,17 +1,28 @@
 /**
- * partner.js -- Identify an attendee by their iShield key, then move money on
+ * partner.js -- A partner booth: unlock with the shared password, pick the
+ * partner, identify an attendee by their iShield key, then move points on
  * their account
  *
- * One touch. Identify runs the demo's open get (webauthnIdentify in
- * ishield.js: empty allowCredentials, userVerification discouraged, the
- * security-key hint), so whatever discoverable credential the key holds for
- * this site answers and hands back its user handle: the phone number
- * register.html wrote there, as bare digits. The page looks that number up in
- * the user database and shows the account with three buttons:
+ * The page opens locked. The one password every booth shares (PARTNER_PASSWORD,
+ * in plain text below: this is a demo, not a secret) sets a flag in
+ * localStorage so the booth's device stays unlocked across reloads; Lock in
+ * the footer clears it. A strip of partner tiles sits at the top of the card;
+ * the chosen one is highlighted, remembered in localStorage, and can be preset
+ * with ?partner=<id> so each booth gets its own link. Nothing about the
+ * partner is sent anywhere: the user API has no field for it, so the choice
+ * only decides which preset buttons appear and how the flash names the move.
  *
- *   Partner Engagement Credit      + $500      a fixed credit
- *   Add Custom Credit / Cash Out   + $Custom   the amount typed in the box
- *   Deduct Custom Credit / Buy In  - $Custom   the same amount, negative
+ * Identify runs the demo's open get (webauthnIdentify in ishield.js: empty
+ * allowCredentials, userVerification discouraged, the security-key hint), so
+ * whatever discoverable credential the key holds for this site answers and
+ * hands back its user handle: the phone number register.html wrote there, as
+ * bare digits. The page looks that number up in the user database and shows
+ * the account, in points, with the partner's preset buttons (PARTNERS: +10,
+ * +30, +70 for the four sponsors, +50 for Ice Cream) and the two Custom
+ * buttons that take whatever is typed in the box:
+ *
+ *   Add Custom Credit / Cash Out   + Custom   the amount typed in the box
+ *   Deduct Custom Credit / Buy In  - Custom   the same amount, negative
  *
  * Each press is one PATCH /users/:id/balance (docs/user-api.md section 3a).
  * The API ADDS what it is sent and rounds to cents, so a deduction is a
@@ -21,16 +32,18 @@
  * slow one may have landed): the record is re-read and the balance shown is
  * whatever the server now holds. The record is read by bare-digit phone and
  * the PATCH goes by userId, never by phone, since duplicate numbers are
- * possible.
+ * possible. The balance is one number: this page calls it points, the demo
+ * page (app.js) shows the same field as dollars.
  *
  * BROWSERS: the open get is what phones do (iOS in any browser, Android
  * Chrome 128+) and Safari on a Mac. Desktop Chrome refuses it for a PIN-less
  * key, so the page says so up front, as register.html does for the create.
  *
- * The helpers (userIdFromHandle, describeGetError, parseAmount,
- * findUserByPhone, adjustBalance) are pure or take a fetch, so a Node harness
- * can cover them; the module's top level only registers a DOMContentLoaded
- * listener.
+ * The helpers (checkPassword, findPartner, partnerFromSearch, formatPoints,
+ * presetLabel, userIdFromHandle, describeGetError, parseAmount,
+ * findUserByPhone, adjustBalance, fullName) are pure or take a fetch, so a
+ * Node harness can cover them; the module's top level only registers a
+ * DOMContentLoaded listener.
  */
 
 import { webauthnIdentify } from './ishield.js';
@@ -38,13 +51,57 @@ import { detectBrowser } from './key-enroll.js';
 
 const DB_BASE = './db';
 
-/** What Partner Engagement Credit adds, in dollars. */
-export const ENGAGEMENT_CREDIT = 500;
+/** The password every booth shares. Hard-coded on purpose: the demo needs a gate, not security. */
+export const PARTNER_PASSWORD = 'Passkeys2026';
 
-/** The most a Custom button will send in one press, in dollars. */
+/** localStorage keys: the unlocked flag, and the id of the chosen partner. */
+export const UNLOCKED_KEY = 'partner_unlocked';
+export const PARTNER_KEY = 'partner_booth';
+
+/**
+ * The partners, in strip order. `presets` are the fixed buttons, in points,
+ * signed: positive adds, negative would deduct (none does today; a negative
+ * entry draws red and goes through the overdraft check). A tile whose icon
+ * file is missing shows the name alone.
+ */
+export const PARTNERS = [
+  { id: 'google',   name: 'Google',    icon: './partners/google.png',    presets: [10, 30, 70] },
+  { id: 'rsa',      name: 'RSA',       icon: './partners/rsa.png',       presets: [10, 30, 70] },
+  { id: 'swissbit', name: 'Swissbit',  icon: './partners/swissbit.png',  presets: [10, 30, 70] },
+  { id: 'hid',      name: 'HID',       icon: './partners/hid.png',       presets: [10, 30, 70] },
+  { id: 'icecream', name: 'Ice Cream', icon: './partners/ice-cream.svg', presets: [50] }
+];
+
+/** The most a Custom button will send in one press, in points. */
 export const MAX_AMOUNT = 1000000;
 
-export const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+const pointsFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+
+/** "1,030 pts", "12.5 pts": the balance and every amount on this page. */
+export function formatPoints(n) {
+  return `${pointsFormat.format(n)} pts`;
+}
+
+/** The face of a preset button: "+30", "-50". */
+export function presetLabel(amount) {
+  return `${amount < 0 ? '-' : '+'}${pointsFormat.format(Math.abs(amount))}`;
+}
+
+/** True for the partner password, exactly as typed (no trimming: a stray space is a wrong password). */
+export function checkPassword(text) {
+  return String(text ?? '') === PARTNER_PASSWORD;
+}
+
+/** The partner with this id, case-insensitively, or null. */
+export function findPartner(id) {
+  const key = String(id ?? '').trim().toLowerCase();
+  return PARTNERS.find(p => p.id === key) ?? null;
+}
+
+/** The partner a ?partner=<id> query names, or null when there is none or it is unknown. */
+export function partnerFromSearch(search) {
+  return findPartner(new URLSearchParams(search).get('partner'));
+}
 
 /** What a failed get usually means, by DOMException name. */
 export const GET_ERROR_HINTS = {
@@ -84,9 +141,9 @@ export function describeGetError(err) {
 }
 
 /**
- * A typed amount as a positive number of dollars rounded to cents, or null
- * when it is not one: blank, zero, negative, more than two decimals, not a
- * number, or above MAX_AMOUNT. A leading $ and thousands separators in the
+ * A typed amount as a positive number of points rounded to two decimals, or
+ * null when it is not one: blank, zero, negative, more than two decimals, not
+ * a number, or above MAX_AMOUNT. A leading $ and thousands separators in the
  * right places ("1,250.50") are tolerated; a comma anywhere else is not.
  */
 export function parseAmount(text) {
@@ -143,11 +200,31 @@ export function fullName(record) {
 // ---------------------------------------------------------------------------
 
 const $ = id => document.getElementById(id);
-const ACTION_BUTTONS = ['credit-btn', 'add-custom-btn', 'deduct-custom-btn'];
 let flashTimer = null;
 
 /** The identified account: { phone, userId, balance }, or null before a key has answered. */
 let account = null;
+
+/** The chosen partner (one of PARTNERS); set before the booth is shown. */
+let partner = null;
+
+/** The preset buttons drawn for `partner`, so a balance move can disable them. */
+let presetButtons = [];
+
+/** True while a PATCH is in flight: every balance button is disabled, including ones drawn meanwhile. */
+let busy = false;
+
+/** localStorage, tolerated absent (private mode, blocked storage): the page then forgets on reload. */
+function stored(key) {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
+function store(key, value) {
+  try {
+    if (value === null) localStorage.removeItem(key);
+    else localStorage.setItem(key, value);
+  } catch { /* nothing to do: the choice lasts for this page only */ }
+}
 
 function showFlash(message, state, duration = 6000) {
   const el = $('flash-status');
@@ -159,17 +236,108 @@ function showFlash(message, state, duration = 6000) {
   }
 }
 
-function setBusy(busy) {
-  for (const id of ACTION_BUTTONS) $(id).disabled = busy;
+function setBusy(on) {
+  busy = on;
+  for (const btn of [...presetButtons, $('add-custom-btn'), $('deduct-custom-btn')]) btn.disabled = on;
 }
+
+// ---- the gate ----
+
+/** Locked shows the password form alone; unlocked shows the booth and the Lock link. */
+function showGate(locked) {
+  $('gate-section').hidden = !locked;
+  $('booth').hidden = locked;
+  $('lock-link').hidden = locked;
+}
+
+/** The password form's submit: the right password unlocks this device until Lock. */
+function unlock(event) {
+  event.preventDefault();
+  const input = $('gate-password');
+  if (!checkPassword(input.value)) {
+    input.value = '';
+    input.focus();
+    showFlash('That is not the partner password.', 'failure');
+    return;
+  }
+  input.value = '';
+  store(UNLOCKED_KEY, '1');
+  showGate(false);
+  showFlash(`Unlocked. ${partner.name} is selected; tap another tile to change it.`, 'success');
+}
+
+/** Lock: forget the flag, drop whatever account was on screen, back to the form. */
+function lock() {
+  store(UNLOCKED_KEY, null);
+  account = null;
+  $('account-section').hidden = true;
+  $('custom-amount').value = '';
+  showGate(true);
+  $('gate-password').focus();
+}
+
+// ---- the partner strip ----
+
+/** One tile per partner: icon over name, a radio in all but markup. */
+function renderStrip() {
+  const strip = $('partner-strip');
+  const tiles = PARTNERS.map(p => {
+    const tile = document.createElement('button');
+    tile.type = 'button';
+    tile.className = 'pt-tile';
+    tile.dataset.partner = p.id;
+    tile.setAttribute('role', 'radio');
+    tile.setAttribute('aria-checked', 'false');
+    const img = document.createElement('img');
+    img.src = p.icon;
+    img.alt = '';
+    img.addEventListener('error', () => { img.hidden = true; });
+    const name = document.createElement('span');
+    name.className = 'pt-tile-name';
+    name.textContent = p.name;
+    tile.appendChild(img);
+    tile.appendChild(name);
+    tile.addEventListener('click', () => selectPartner(p.id));
+    return tile;
+  });
+  strip.replaceChildren(...tiles);
+}
+
+/** Makes `id` the current partner (the first one when it is unknown), remembers it, redraws the presets. */
+function selectPartner(id) {
+  partner = findPartner(id) ?? PARTNERS[0];
+  store(PARTNER_KEY, partner.id);
+  for (const tile of $('partner-strip').children) {
+    const on = tile.dataset.partner === partner.id;
+    tile.classList.toggle('selected', on);
+    tile.setAttribute('aria-checked', String(on));
+  }
+  $('presets-title').textContent = `${partner.name} points`;
+  renderPresets();
+}
+
+/** The partner's fixed buttons: green adds, red deducts, each one PATCH of its amount. */
+function renderPresets() {
+  presetButtons = partner.presets.map(amount => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `btn pt-btn ${amount < 0 ? 'pt-btn-deduct' : 'pt-btn-credit'}`;
+    btn.textContent = presetLabel(amount);
+    btn.disabled = busy;
+    btn.addEventListener('click', () => adjust(partner.name, amount));
+    return btn;
+  });
+  $('presets').replaceChildren(...presetButtons);
+}
+
+// ---- the account ----
 
 /** Draws the account block for `userId`; a null record means no account on file. */
 function renderAccount(userId, record) {
   $('account-user').textContent = userId;
   $('account-name').textContent = record ? fullName(record) : '--';
-  $('account-balance').textContent = record ? money.format(Number(record.balance)) : '--';
-  $('amount-field').hidden = !record;
-  $('actions').hidden = !record;
+  $('account-balance').textContent = record ? formatPoints(Number(record.balance)) : '--';
+  $('moves').hidden = !record;
   $('account-note').textContent = record ? '' : 'No account has this number. Register it on the registration page first.';
   $('account-note').hidden = !!record;
   $('account-section').hidden = false;
@@ -224,7 +392,7 @@ async function rereadBalance() {
     const record = await findUserByPhone(account.phone);
     if (record) {
       account.balance = Number(record.balance);
-      $('account-balance').textContent = money.format(account.balance);
+      $('account-balance').textContent = formatPoints(account.balance);
     }
   } catch (err) {
     console.warn('[partner] re-read failed:', err.message);
@@ -234,21 +402,22 @@ async function rereadBalance() {
 /**
  * One balance move for the identified account. `amount` is signed: positive
  * adds, negative deducts, and a deduction the balance cannot cover is refused
- * here because the API would not refuse it.
+ * here because the API would not refuse it. `label` names the move in the
+ * flash: the partner for a preset, "<partner> custom credit" for the box.
  */
 async function adjust(label, amount) {
-  if (!account) return;
+  if (!account || busy) return;
   const magnitude = Math.abs(amount);
   if (amount < 0 && account.balance < magnitude) {
-    showFlash(`${label} declined: ${money.format(magnitude)} exceeds the balance of ${money.format(account.balance)}.`, 'failure', 8000);
+    showFlash(`${label} declined: ${formatPoints(magnitude)} exceeds the balance of ${formatPoints(account.balance)}.`, 'failure', 8000);
     return;
   }
   setBusy(true);
-  showFlash(`${label}: ${amount < 0 ? 'deducting' : 'adding'} ${money.format(magnitude)}...`, 'info', 60000);
+  showFlash(`${label}: ${amount < 0 ? 'deducting' : 'adding'} ${formatPoints(magnitude)}...`, 'info', 60000);
   try {
     account.balance = await adjustBalance(account.userId, amount);
-    $('account-balance').textContent = money.format(account.balance);
-    showFlash(`${label}: ${money.format(magnitude)} ${amount < 0 ? 'deducted' : 'added'}. Balance is now ${money.format(account.balance)}.`, 'success', 8000);
+    $('account-balance').textContent = formatPoints(account.balance);
+    showFlash(`${label}: ${formatPoints(magnitude)} ${amount < 0 ? 'deducted' : 'added'}. Balance is now ${formatPoints(account.balance)}.`, 'success', 8000);
   } catch (err) {
     // The PATCH may or may not have landed. Re-read rather than retry, so a
     // slow server never applies it twice.
@@ -264,7 +433,7 @@ async function adjust(label, amount) {
 function customAmount(label) {
   const amount = parseAmount($('custom-amount').value);
   if (amount === null) {
-    showFlash(`${label}: enter a positive amount, up to ${money.format(MAX_AMOUNT)}, in the Custom amount box first.`, 'failure', 8000);
+    showFlash(`${label}: enter a positive amount, up to ${formatPoints(MAX_AMOUNT)}, in the Custom amount box first.`, 'failure', 8000);
     $('custom-amount').focus();
   }
   return amount;
@@ -278,20 +447,37 @@ async function showBrowserInfo() {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
+  $('gate-form').addEventListener('submit', unlock);
+  $('lock-link').addEventListener('click', event => { event.preventDefault(); lock(); });
+
+  // The strip, then the partner: ?partner=<id> wins, is remembered, and comes
+  // off the address bar; otherwise the remembered one; otherwise the first.
+  renderStrip();
+  const fromUrl = partnerFromSearch(location.search);
+  if (fromUrl) {
+    store(PARTNER_KEY, fromUrl.id);
+    const url = new URL(location.href);
+    url.searchParams.delete('partner');
+    history.replaceState(null, '', url);
+  }
+  selectPartner(stored(PARTNER_KEY));
+  showGate(stored(UNLOCKED_KEY) !== '1');
+
   $('identify-btn').addEventListener('click', () => identify());
   if (!window.PublicKeyCredential) {
     $('identify-btn').disabled = true;
     $('identify-btn').textContent = 'This browser has no WebAuthn support';
   }
 
-  $('credit-btn').addEventListener('click', () => adjust('Partner Engagement Credit', ENGAGEMENT_CREDIT));
   $('add-custom-btn').addEventListener('click', () => {
-    const amount = customAmount('Add Custom Credit');
-    if (amount !== null) adjust('Add Custom Credit', amount);
+    const label = `${partner.name} custom credit`;
+    const amount = customAmount(label);
+    if (amount !== null) adjust(label, amount);
   });
   $('deduct-custom-btn').addEventListener('click', () => {
-    const amount = customAmount('Deduct Custom Credit');
-    if (amount !== null) adjust('Deduct Custom Credit', -amount);
+    const label = `${partner.name} custom deduction`;
+    const amount = customAmount(label);
+    if (amount !== null) adjust(label, -amount);
   });
 
   showBrowserInfo();

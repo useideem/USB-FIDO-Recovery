@@ -788,8 +788,10 @@ Demo-swissbit/
                           create, then a QR into the demo with ?userid=<digits>
   key-enroll.js        -- The discoverable create that puts a phone number on an iShield key, as a
                           function for register.js (the measured options; fido-test.js defaults to them)
-  partner.html/.js     -- Partner page: Identify reads the User ID off an iShield key, shows the account
-                          and moves its balance (+ $500, + $Custom, - $Custom) through the user API
+  partner.html/.js     -- Partner booth: a shared password, a strip of partner tiles, then Identify reads
+                          the User ID off an iShield key and the partner's preset and custom point
+                          buttons move the balance through the user API
+  partners/            -- The tile logos (Google, RSA, Swissbit, HID) and the Twemoji ice cream
   api/db.js            -- Vercel function: proxy to the user API (/db/*)
   api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
   zsm_app_config.json  -- Ideem application credentials

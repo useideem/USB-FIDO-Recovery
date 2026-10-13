@@ -15,64 +15,93 @@
       <span class="logo-divider"></span>
       <img src="./ideem-logo.png" alt="Ideem" class="logo logo-ideem">
     </div>
-    <p class="subtitle">Identify with your iShield key</p>
+    <p class="subtitle">Partner booth</p>
   </header>
 
   <main class="card pt-card">
 
-    <!-- Flash message: what the key and the database are doing, and why something failed -->
+    <!-- Flash message: what the gate, the key and the database are doing, and why something failed -->
     <div id="flash-status" class="flash" role="status" aria-live="polite"></div>
 
-    <!-- IDENTIFY: one touch, then the account below -->
-    <section class="pt-step" aria-labelledby="identify-title">
-      <h2 class="ft-section-title" id="identify-title">Identify</h2>
-      <p class="ft-hint">Insert your iShield key, press <b>Identify</b>, then touch the key when the browser asks. Your User ID is read off the key and your account appears below.</p>
-      <!-- Shown only in desktop Chrome, which cannot read a PIN-less key this way -->
-      <p class="en-warning" id="chrome-warning" hidden>
-        Desktop Chrome refuses to read a PIN-less key without a credential list, so
-        Identify will not work here. Use a phone, or Safari on a Mac.
-      </p>
-      <button id="identify-btn" type="button" class="btn btn-primary">Identify</button>
+    <!-- GATE: the shared partner password, checked in partner.js. A demo gate, not security. -->
+    <section class="pt-gate" id="gate-section" aria-labelledby="gate-title">
+      <h2 class="ft-section-title" id="gate-title">Partner access</h2>
+      <p class="ft-hint">Enter the partner password to open the booth controls. This device stays unlocked until you press Lock.</p>
+      <form id="gate-form" class="pt-gate-form" novalidate>
+        <label class="ft-label" for="gate-password">Password</label>
+        <!-- The same password-manager opt-outs as the demo's User ID field: this
+             is a booth password, not one to save -->
+        <input id="gate-password" class="ft-input" type="password" name="partner-access"
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+               data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
+        <button id="gate-btn" type="submit" class="btn btn-primary">Unlock</button>
+      </form>
     </section>
 
-    <!-- ACCOUNT: the record behind the number, and the three balance moves -->
-    <section class="pt-account" id="account-section" aria-labelledby="account-title" hidden>
-      <h2 class="ft-section-title" id="account-title">Account</h2>
-      <dl class="rg-details">
-        <div class="rg-detail"><dt>Name</dt><dd id="account-name"></dd></div>
-        <div class="rg-detail"><dt>User ID</dt><dd class="rg-mono" id="account-user"></dd></div>
-        <div class="rg-detail"><dt>Balance</dt><dd class="rg-mono" id="account-balance"></dd></div>
-      </dl>
-      <p class="en-warning" id="account-note" hidden></p>
+    <!-- BOOTH: everything below the gate -->
+    <div id="booth" hidden>
 
-      <!-- The two Custom buttons take their amount from here -->
-      <div class="ft-field pt-amount" id="amount-field">
-        <label class="ft-label" for="custom-amount">Custom amount</label>
-        <input id="custom-amount" class="ft-input" type="text" inputmode="decimal" placeholder="0.00" autocomplete="off">
-      </div>
+      <!-- PARTNER: one tile per entry in PARTNERS (partner.js), drawn by renderStrip -->
+      <section class="pt-partners" aria-labelledby="partners-title">
+        <h2 class="ft-section-title" id="partners-title">Partner</h2>
+        <div class="pt-partner-strip" id="partner-strip" role="radiogroup" aria-label="Partner"></div>
+      </section>
 
-      <!-- Each button is one PATCH /users/:id/balance for the identified user -->
-      <div class="pt-actions" id="actions">
-        <div class="pt-action">
-          <span class="pt-action-label">Partner Engagement Credit</span>
-          <button id="credit-btn" type="button" class="btn pt-btn pt-btn-credit">+ $500</button>
+      <!-- IDENTIFY: one touch, then the account below -->
+      <section class="pt-step" aria-labelledby="identify-title">
+        <h2 class="ft-section-title" id="identify-title">Identify</h2>
+        <p class="ft-hint">Insert the attendee's iShield key, press <b>Identify</b>, then have them touch the key when the browser asks. Their User ID is read off the key and their account appears below.</p>
+        <!-- Shown only in desktop Chrome, which cannot read a PIN-less key this way -->
+        <p class="en-warning" id="chrome-warning" hidden>
+          Desktop Chrome refuses to read a PIN-less key without a credential list, so
+          Identify will not work here. Use a phone, or Safari on a Mac.
+        </p>
+        <button id="identify-btn" type="button" class="btn btn-primary">Identify</button>
+      </section>
+
+      <!-- ACCOUNT: the record behind the number, the partner's presets, and the custom moves -->
+      <section class="pt-account" id="account-section" aria-labelledby="account-title" hidden>
+        <h2 class="ft-section-title" id="account-title">Account</h2>
+        <dl class="rg-details">
+          <div class="rg-detail"><dt>Name</dt><dd id="account-name"></dd></div>
+          <div class="rg-detail"><dt>User ID</dt><dd class="rg-mono" id="account-user"></dd></div>
+          <div class="rg-detail"><dt>Balance</dt><dd class="rg-mono" id="account-balance"></dd></div>
+        </dl>
+        <p class="en-warning" id="account-note" hidden></p>
+
+        <div id="moves">
+          <!-- The partner's fixed buttons, drawn by renderPresets from PARTNERS -->
+          <h3 class="pt-presets-title" id="presets-title">Points</h3>
+          <div class="pt-presets" id="presets"></div>
+
+          <!-- The two Custom buttons take their amount from here -->
+          <div class="ft-field pt-amount" id="amount-field">
+            <label class="ft-label" for="custom-amount">Custom amount</label>
+            <input id="custom-amount" class="ft-input" type="text" inputmode="decimal" placeholder="0" autocomplete="off">
+          </div>
+
+          <!-- Each button is one PATCH /users/:id/balance for the identified user -->
+          <div class="pt-actions" id="actions">
+            <div class="pt-action">
+              <span class="pt-action-label">Add Custom Credit / Cash Out</span>
+              <button id="add-custom-btn" type="button" class="btn pt-btn pt-btn-add">+ Custom</button>
+            </div>
+            <div class="pt-action">
+              <span class="pt-action-label">Deduct Custom Credit / Buy In</span>
+              <button id="deduct-custom-btn" type="button" class="btn pt-btn pt-btn-deduct">- Custom</button>
+            </div>
+          </div>
         </div>
-        <div class="pt-action">
-          <span class="pt-action-label">Add Custom Credit / Cash Out</span>
-          <button id="add-custom-btn" type="button" class="btn pt-btn pt-btn-add">+ $Custom</button>
-        </div>
-        <div class="pt-action">
-          <span class="pt-action-label">Deduct Custom Credit / Buy In</span>
-          <button id="deduct-custom-btn" type="button" class="btn pt-btn pt-btn-deduct">- $Custom</button>
-        </div>
-      </div>
-    </section>
+      </section>
+
+    </div>
 
   </main>
 
   <!-- Footer -->
   <footer class="footer ft-footer">
     <p class="ft-hint" id="browser-info">Checking which browser this is...</p>
+    <a href="#" id="lock-link" hidden>Lock</a>
     <a href="./register.html">Register</a>
     <a href="./fido-test.html">Key tester</a>
     <a href="./index.html">Back to the demo</a>
