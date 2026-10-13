@@ -5,19 +5,32 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Register a Badge | Swissbit + Ideem</title>
   <link rel="stylesheet" href="./style.css">
+  <!-- The party theme (landing.html's look) layered over the shared styles -->
+  <link rel="stylesheet" href="./party.css">
 </head>
-<body>
+<body class="party">
 
   <!-- Header -->
-  <header class="header header-logos">
-    <!-- The four sponsors (the partner booth logos) and Ideem -->
-    <div class="logo-row logo-row-wide">
-      <img src="./partners/swissbit.png" alt="Swissbit" class="logo">
-      <img src="./partners/hid.png" alt="HID" class="logo">
-      <img src="./partners/google.png" alt="Google" class="logo logo-google">
-      <img src="./partners/rsa.png" alt="RSA" class="logo">
-      <img src="./ideem-logo.png" alt="Ideem" class="logo">
+  <!-- Top bar and sponsor strip, as on landing.html (party.css) -->
+  <div class="topbar">
+    <div class="container">
+      <a class="brand" href="./landing.html">Authenticate 2026 • Death to Passwords</a>
     </div>
+  </div>
+  <section class="sponsors" aria-label="Partners and sponsors">
+    <div class="sponsor-track">
+      <img src="./partners/swissbit.png" alt="Swissbit">
+      <img src="./partners/hid.png" alt="HID">
+      <img src="./partners/google.png" alt="Google" class="logo-google">
+      <img src="./partners/rsa.png" alt="RSA">
+      <img src="./ideem-logo.png" alt="Ideem" class="logo-ideem">
+    </div>
+  </section>
+
+  <!-- The page: heading, card and footer, centred as style.css lays them out -->
+  <div class="page">
+
+  <header class="header">
     <p class="subtitle">Register with your conference badge</p>
   </header>
 
@@ -117,8 +130,11 @@
   <!-- Footer -->
   <footer class="footer ft-footer">
     <p class="ft-hint" id="browser-info">Checking which browser this is...</p>
-    <a href="./index.html">Back to the demo</a>
+    <a href="./index.html">Login</a>
+    <a href="./partner.html">Partner booth</a>
   </footer>
+
+  </div>
 
   <!-- jsQR is a UMD bundle that sets window.jsQR; the module below reads it
        when the browser has no BarcodeDetector of its own. -->

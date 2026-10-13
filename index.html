@@ -21,7 +21,7 @@
   <!-- Top bar and sponsor strip, as on landing.html (party.css) -->
   <div class="topbar">
     <div class="container">
-      <a class="brand" href="./landing.html">Authenticate 2026 • Swissbit • Ideem</a>
+      <a class="brand" href="./landing.html">Authenticate 2026 • Death to Passwords</a>
     </div>
   </div>
   <section class="sponsors" aria-label="Partners and sponsors">
@@ -30,17 +30,13 @@
       <img src="./partners/hid.png" alt="HID">
       <img src="./partners/google.png" alt="Google" class="logo-google">
       <img src="./partners/rsa.png" alt="RSA">
-      <img src="./ideem-logo.png" alt="Ideem">
+      <img src="./ideem-logo.png" alt="Ideem" class="logo-ideem">
     </div>
   </section>
 
   <!-- The demo: header, card and footer, centred as style.css lays them out -->
   <div class="page">
 
-  <!-- Header -->
-  <header class="header">
-    <p class="subtitle">Extending iShield to Trusted Devices</p>
-  </header>
 
   <!-- Main Card -->
   <main class="card">
@@ -79,7 +75,7 @@
 
     <!-- SETUP screen — new device, no credentials -->
     <div class="screen active" id="SETUP">
-      <button id="trust-device-btn" class="btn btn-primary" disabled>Trust Device</button>
+      <button id="trust-device-btn" class="btn btn-primary" disabled>Enter Game</button>
     </div>
 
     <!-- LOGIN screen — device trusted, user logged out -->
@@ -105,8 +101,8 @@
 
       <div class="challenge-display" id="ishield-challenge-display" hidden>
         <div class="challenge-section-header">
-          <span class="challenge-section-label">FIDO Key</span>
-          <img src="./swissbit.png" alt="FIDO Key" id="icon-ishield" class="auth-icon">
+          <span class="challenge-section-label">USB Key</span>
+          <img src="./swissbit.png" alt="USB Key" id="icon-ishield" class="auth-icon">
         </div>
         <details id="ishield-challenge-details">
           <summary>Challenge: <span id="ishield-challenge-preview" class="challenge-value">--</span><button class="btn-copy" aria-label="Copy value" onclick="event.stopPropagation()">
@@ -215,8 +211,8 @@
          app.js draws the step list from SNA_STEPS in sna.js, and the
          indicator list is what the attendee ends on. -->
     <div class="screen" id="SNA">
-      <p class="sna-title" id="sna-title">Verifying your phone number</p>
-      <p class="sna-subtitle" id="sna-subtitle">We'll verify your mobile number silently over your network.</p>
+      <p class="sna-title" id="sna-title">Verify phone number with telco carrier</p>
+      <p class="sna-subtitle" id="sna-subtitle">Cryptographically guarantee this phone number is operating on this device.</p>
       <div class="sna-number">
         <span class="sna-number-label">Mobile number</span>
         <b id="sna-number">--</b>
@@ -224,12 +220,12 @@
       <ol class="sna-steps" id="sna-steps" hidden></ol>
       <div id="sna-status" class="flash" role="status" aria-live="polite"></div>
       <ul class="sna-indicators" id="sna-indicators" hidden>
-        <li class="sna-indicator" id="sna-ind-ishield"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">FIDO Key</span><span class="sna-indicator-state" id="sna-ind-ishield-state"></span></li>
-        <li class="sna-indicator" id="sna-ind-number"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Number Verified</span><span class="sna-indicator-state" id="sna-ind-number-state"></span></li>
-        <li class="sna-indicator" id="sna-ind-device"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Device Bound</span><span class="sna-indicator-state" id="sna-ind-device-state"></span></li>
-        <li class="sna-indicator" id="sna-ind-passkey"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Passkey</span><span class="sna-indicator-state" id="sna-ind-passkey-state"></span></li>
+        <li class="sna-indicator" id="sna-ind-ishield"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">USB Key</span><span class="sna-indicator-state" id="sna-ind-ishield-state"></span></li>
+        <li class="sna-indicator" id="sna-ind-number"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Phone# Verified</span><span class="sna-indicator-state" id="sna-ind-number-state"></span></li>
+        <li class="sna-indicator" id="sna-ind-device"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Cryptographic Device Binding</span><span class="sna-indicator-state" id="sna-ind-device-state"></span></li>
+        <li class="sna-indicator" id="sna-ind-passkey"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Passkey Enrolled</span><span class="sna-indicator-state" id="sna-ind-passkey-state"></span></li>
       </ul>
-      <p class="sna-note">Simulated Silent Network Authentication, modelled on IDlayr's Secure SNA. No network request is made.</p>
+      <p class="sna-note">Simulated Silent Network Authentication with IDlayr's secure SNA.</p>
       <button id="sna-verify" class="btn btn-primary">Verify my number</button>
       <button id="sna-continue" class="btn btn-primary" hidden>Continue</button>
       <button id="sna-cancel" class="btn btn-secondary">Cancel</button>
@@ -238,8 +234,8 @@
     <!-- Status pills — always visible. The four indicators the enrollment
          ends on, in that order, then the Passkeys+ state that drives Suspend. -->
     <div class="status-pills">
-      <span class="pill">FIDO Key: <b id="ishield-status">--</b></span>
-      <span class="pill">Number Verified: <b id="number-status">--</b></span>
+      <span class="pill">USB Key: <b id="ishield-status">--</b></span>
+      <span class="pill">Phone# Verified: <b id="number-status">--</b></span>
       <span class="pill">Device Bound: <b id="zsm-status">--</b></span>
       <span class="pill">Passkey: <b id="passkey-status">--</b></span>
       <span class="pill">Passkeys+: <b id="passkeys-plus-status">--</b></span>

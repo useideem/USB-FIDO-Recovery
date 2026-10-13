@@ -75,17 +75,21 @@ body.party {
   object-fit: contain;
 }
 
-/* The Google wordmark fills its image where the others carry padding, so it
-   is drawn shorter to read the same size */
+/* The Google and Ideem wordmarks fill their images where the others carry
+   padding, so they are drawn shorter to read the same size */
 .party .sponsor-track img.logo-google {
   height: 28px;
 }
 
+.party .sponsor-track img.logo-ideem {
+  height: 26px;
+}
+
 /* ----- A style.css page below the strip (index.html) ----- */
 
-/* The demo lays its header, card and footer out with style.css's body
-   rules; .page takes those over so the top bar and strip can span the
-   whole width above it. */
+/* The demo lays its card and footer out with style.css's body rules; .page
+   takes those over so the top bar and strip can span the whole width above
+   it. */
 .party .page {
   display: flex;
   flex-direction: column;
@@ -94,6 +98,7 @@ body.party {
   padding: 20px 16px;
 }
 
+/* A page heading above the card (register.html) */
 .party .header .subtitle {
   font-size: 1.05rem;
   font-weight: 700;
@@ -108,10 +113,17 @@ body.party {
   box-shadow: 0 12px 36px rgba(0, 0, 0, 0.35);
 }
 
-/* The outlined footer buttons sit on the photo, so they get a dark ground */
+/* Footer text and links sit on the photo */
+.party .footer .ft-hint {
+  color: var(--party-cream-muted);
+  text-shadow: 0 1px 4px #000;
+}
+
+/* The outlined footer buttons sit on the photo, so they get a dark ground,
+   and a disabled one stays legible instead of fading into the lanterns */
 .party .footer .btn-warning-small,
 .party .footer .btn-danger-small {
-  background: rgba(8, 14, 16, 0.72);
+  background: rgba(8, 14, 16, 0.85);
 }
 
 .party .footer .btn-warning-small:hover {
@@ -120,6 +132,14 @@ body.party {
 
 .party .footer .btn-danger-small:hover {
   background: var(--color-danger-bg);
+}
+
+.party .footer .btn-warning-small:disabled,
+.party .footer .btn-danger-small:disabled {
+  opacity: 0.8;
+  color: var(--party-cream-muted);
+  border-color: rgba(239, 210, 160, 0.55);
+  background: rgba(8, 14, 16, 0.7);
 }
 
 .party .footer a {
@@ -146,5 +166,9 @@ body.party {
 
   .party .sponsor-track img.logo-google {
     height: 20px;
+  }
+
+  .party .sponsor-track img.logo-ideem {
+    height: 18px;
   }
 }

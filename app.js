@@ -680,12 +680,16 @@ const SNA_FAILURE_MESSAGES = {
   network_unsupported: 'Your network could not verify the number silently. Turn on cellular data and try again.'
 };
 
-/** The indicator rows, in order, with what each reads when lit and when not. */
+/**
+ * The indicator rows, in order, with what each reads when lit and when not:
+ * true/false, as the status pills, except that a missing key marker is
+ * 'unknown' (the marker is per device, so its absence proves nothing).
+ */
 const SNA_INDICATORS = [
-  { id: 'ishield', on: 'validated', off: 'not on this device' },
-  { id: 'number', on: 'verified', off: 'not verified' },
-  { id: 'device', on: 'bound', off: 'not bound' },
-  { id: 'passkey', on: 'enrolled', off: 'not enrolled' }
+  { id: 'ishield', on: 'true', off: 'unknown' },
+  { id: 'number', on: 'true', off: 'false' },
+  { id: 'device', on: 'true', off: 'false' },
+  { id: 'passkey', on: 'true', off: 'false' }
 ];
 
 let snaResolve = null;     // settles the ensureNumberVerified() promise
@@ -763,17 +767,17 @@ async function renderSna({ user, phase, message = '' }) {
   const failed = phase === 'failed';
 
   $('sna-number').textContent = formatPhone(user);
-  $('sna-title').textContent = verified ? 'Number verified' : 'Verifying your phone number';
+  $('sna-title').textContent = verified ? 'Number verified' : 'Verify phone number with telco carrier';
   $('sna-subtitle').textContent =
     verified ? 'Your mobile number was verified silently over your network.' :
     phase === 'running' ? 'This takes a few seconds and needs nothing from you.' :
-    "We'll verify your mobile number silently over your network.";
+    'Cryptographically guarantee this phone number is operating on this device.';
 
   if (phase === 'ready' || phase === 'running') buildSnaSteps();
   $('sna-steps').hidden = phase === 'ready';
 
   const status = $('sna-status');
-  status.textContent = verified ? 'Verified' : message;
+  status.textContent = verified ? `${formatPhone(user)} Verified` : message;
   status.className = 'flash' + (verified ? ' success' : failed ? ' failure' : '');
 
   const verify = $('sna-verify');
@@ -1080,7 +1084,7 @@ async function trustDevice() {
 
   } catch (err) {
     console.error('[trustDevice] Error:', err);
-    showFlash('flash-status', 'Trust Device failed', 'failure');
+    showFlash('flash-status', 'Enter Game failed', 'failure');
     await updateUI();
   } finally {
     btn.classList.remove('loading');
