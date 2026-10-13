@@ -75,15 +75,15 @@ body.party {
   object-fit: contain;
 }
 
-/* The Google and Ideem wordmarks fill their images where the others carry
-   padding, so they are drawn shorter to read the same size */
-.party .sponsor-track img.logo-google {
-  height: 28px;
-}
-
-.party .sponsor-track img.logo-ideem {
-  height: 26px;
-}
+/* Each mark is sized by the ink it shows, not by its image box, so the five
+   read the same size. The files carry very different padding: measured on
+   2026-10-13, the ink is 41% of the image height for Swissbit, 53% for HID,
+   87% for Google, 40% for RSA and 100% for Ideem. */
+.party .sponsor-track img.logo-swissbit { height: 44px; max-width: 140px; }
+.party .sponsor-track img.logo-hid      { height: 34px; }
+.party .sponsor-track img.logo-google   { height: 25px; }
+.party .sponsor-track img.logo-rsa      { height: 38px; }
+.party .sponsor-track img.logo-ideem    { height: 17px; }
 
 /* ----- A style.css page below the strip (index.html) ----- */
 
@@ -164,11 +164,9 @@ body.party {
     max-width: 90px;
   }
 
-  .party .sponsor-track img.logo-google {
-    height: 20px;
-  }
-
-  .party .sponsor-track img.logo-ideem {
-    height: 18px;
-  }
+  .party .sponsor-track img.logo-swissbit { height: 31px; max-width: 100px; }
+  .party .sponsor-track img.logo-hid      { height: 24px; }
+  .party .sponsor-track img.logo-google   { height: 18px; }
+  .party .sponsor-track img.logo-rsa      { height: 27px; }
+  .party .sponsor-track img.logo-ideem    { height: 12px; }
 }

@@ -13,10 +13,11 @@
  *                       the simulated SNA number check (sna.js) and its
  *                       four indicators: iShield, Number Verified, Device
  *                       Bound, Passkey
- *   2. Login         -- authenticate() with Passkeys+ (no USB key needed).
- *                       An unbound device (an attendee arriving from the
- *                       registration QR) first gets the iShield touch, enroll(),
- *                       and the same SNA check
+ *   2. Login         -- the USB key touch first, every time, and the User
+ *                       ID it returns must match the box; then authenticate()
+ *                       with Passkeys+, or on an unbound device (an attendee
+ *                       arriving from the registration QR) enroll() and the
+ *                       same SNA check
  *   3. Actions       -- step-up authenticate() per protected action
  *   3b. P2P Exchange -- after the step-up, a QR code another attendee scans;
  *                       they confirm, verify with their passkey, and both
@@ -980,7 +981,7 @@ async function updateUI() {
 
   // Login button text based on suspended state
   const loginBtn = document.getElementById('login-btn');
-  if (loginBtn) loginBtn.textContent = suspended ? 'Reactivate & Login' : 'Login';
+  if (loginBtn) loginBtn.textContent = suspended ? 'Reactivate & Enter Game' : 'Enter Game';
 
   // If ZSM is present, this user is already enrolled — force New off and disable toggle
   const newToggleEl = document.getElementById('new-user-toggle');
@@ -1039,7 +1040,7 @@ async function trustDevice() {
 
   try {
     // Step 1: Enroll FIDO USB key (raw WebAuthn)
-    showFlash('flash-status', 'Insert your FIDO USB key...', 'success');
+    showFlash('flash-status', 'Insert your USB key...', 'success');
     try {
       await webauthnEnroll(user);
     } catch (err) {
@@ -1094,8 +1095,15 @@ async function trustDevice() {
 }
 
 // ---------------------------------------------------------------------------
-// login — authenticate with Passkeys+ only. `btn` is whichever button started
-// it: Login, or the exchange screen's Confirm.
+// login — the USB key first, every time, then Passkeys+. `btn` is whichever
+// button started it: Enter Game, or the exchange screen's Confirm.
+//
+// The key is the authority on who is logging in: the get runs before anything
+// else, and the User ID it hands back has to be the one in the box
+// (reconcileUserId: a different person stops the flow, a different spelling
+// of the same number is adopted). Only then does the device's own state
+// decide what follows: bind it (ZSM enroll) when it holds no credential,
+// reactivate it when it is suspended, otherwise authenticate.
 // ---------------------------------------------------------------------------
 async function login(btn = document.getElementById('login-btn')) {
   let user = getUsername();  // replaced by the key's own spelling once it answers
@@ -1106,8 +1114,35 @@ async function login(btn = document.getElementById('login-btn')) {
   btn.setAttribute('aria-disabled', 'true');
 
   try {
-    // Check if ZSM is bound locally. If not, this device needs iShield + enrollment.
-    // User said they're not new (New toggle = OFF), so treat as existing user on new device.
+    // Step 1: the key. A discoverable get, so whichever key is present
+    // answers with the identity it holds.
+    showFlash('flash-status', 'Touch your USB key...', 'success', 60000);
+    const ishieldResult = await webauthnAuthenticate(user);
+    if (!ishieldResult.success) {
+      showFlash('flash-status',
+        ishieldResult.error?.name === 'NotAllowedError'
+          ? 'Cancelled or timed out'
+          : ishieldResult.error?.message || 'USB key authentication failed',
+        'failure');
+      return;
+    }
+    if (ishieldResult.clientDataHash) {
+      updateIShieldChallengeDisplay(ishieldResult.clientDataHash, ishieldResult.signatureHex);
+    }
+
+    // Step 2: the User ID on screen has to be the credential the key holds.
+    // A different identity stops here; a different spelling of the same
+    // number is adopted, so what is on screen is literally what is on the key.
+    const confirmed = reconcileUserId(user, ishieldResult.authenticatedUser);
+    if (!confirmed) {
+      showFlash('flash-status',
+        `This key belongs to "${ishieldResult.authenticatedUser}", but the User ID box says "${user}". Enter the ID that matches the key, or use that person's key.`,
+        'failure', 8000);
+      return;
+    }
+    user = confirmed;
+
+    // Step 3: what this device already holds for that user
     await initializeZSMClient(user);
     let hasLocalZSM = false;
     let hasPasskey = false;
@@ -1118,59 +1153,24 @@ async function login(btn = document.getElementById('login-btn')) {
         hasPasskey = status.hasRemotePasskey === true;
       }
     } catch (_) {}
-    const needsBinding = !hasLocalZSM;
+    const usePasskeys = document.getElementById('use-passkeys-toggle').checked;
 
-    if (needsBinding) {
-      const action = await showPopup(
-        'This device needs to be bound. Insert your FIDO USB key.'
-      );
-      if (action === 'cancel') return;
-
-      // Step 1: FIDO key authentication (discoverable credential)
-      showFlash('flash-status', 'Touch your FIDO USB key...', 'success', 60000);
-      const ishieldResult = await webauthnAuthenticate(user);
-      if (!ishieldResult.success) {
-        showFlash('flash-status',
-          ishieldResult.error?.name === 'NotAllowedError'
-            ? 'Cancelled or timed out'
-            : ishieldResult.error?.message || 'FIDO key authentication failed',
-          'failure');
-        return;
-      }
-      if (ishieldResult.clientDataHash) {
-        updateIShieldChallengeDisplay(ishieldResult.clientDataHash, ishieldResult.signatureHex);
-      }
-
-      // The User ID on screen has to be the credential the key holds. A
-      // different identity stops here; a different spelling of the same number
-      // is adopted, so what is on screen is literally what is on the key.
-      const confirmed = reconcileUserId(user, ishieldResult.authenticatedUser);
-      if (!confirmed) {
-        showFlash('flash-status',
-          `Wrong credential selected — key returned "${ishieldResult.authenticatedUser}" but you entered "${user}". Please try again and select the correct credential.`,
-          'failure', 8000);
-        return;
-      }
-      user = confirmed;
-
-      // Step 2: Enroll ZSM (+ Passkeys if toggle is on)
-      const usePasskeys = document.getElementById('use-passkeys-toggle').checked;
+    // An unbound device: bind it (ZSM enroll, with Passkeys+ if the toggle is on)
+    if (!hasLocalZSM) {
       showFlash('flash-status', 'Binding device...', 'success');
-      await initializeZSMClient(user);
       const enrollResult = await enroll(user, usePasskeys);
-
       if (!enrollResult || enrollResult === false || enrollResult instanceof Error) {
         showFlash('flash-status', 'Device binding failed', 'failure');
         return;
       }
 
-      // Step 3: Store local enrollment marker so iShield pill shows 'true'
+      // The local enrollment marker, so the USB Key pill shows 'true'
       localStorage.setItem(ENROLLMENT_MARKER_PREFIX + user, JSON.stringify({
         boundFromRemote: true,
         createdAt: new Date().toISOString()
       }));
 
-      // Step 4: the simulated SNA number check, ending on the four indicators
+      // The simulated SNA number check, ending on the four indicators
       if (!(await ensureNumberVerified(user))) {
         showFlash('flash-status', 'Number not verified. Log in to try again.', 'failure', 4000);
         await updateUI();
@@ -1184,46 +1184,17 @@ async function login(btn = document.getElementById('login-btn')) {
       return;
     }
 
-    // If suspended, require iShield + Passkeys+ to reactivate
+    // A suspended device: the key touch above plus a Passkeys+ authenticate clear it
     if (isSuspended(user)) {
-      showFlash('flash-status', 'Device suspended — touch your FIDO USB key to reactivate', 'success', 60000);
-
-      const ishieldResult = await webauthnAuthenticate(user);
-      if (!ishieldResult.success) {
-        if (ishieldResult.error?.name === 'NotAllowedError') {
-          showFlash('flash-status', 'Cancelled or timed out', 'failure');
-        } else {
-          showFlash('flash-status', ishieldResult.error?.message || 'Authentication failed', 'failure');
-        }
-        return;
-      }
-      updateIShieldChallengeDisplay(ishieldResult.clientDataHash, ishieldResult.signatureHex);
-
-      // The User ID on screen has to be the credential the key holds. A
-      // different identity stops here; a different spelling of the same number
-      // is adopted, so what is on screen is literally what is on the key.
-      const confirmed = reconcileUserId(user, ishieldResult.authenticatedUser);
-      if (!confirmed) {
-        showFlash('flash-status',
-          `Wrong credential selected — key returned "${ishieldResult.authenticatedUser}" but you entered "${user}". Please try again and select the correct credential.`,
-          'failure', 8000);
-        return;
-      }
-      user = confirmed;
-
-      const usePasskeys = document.getElementById('use-passkeys-toggle').checked;
       showFlash('flash-status', 'Authenticating to complete reactivation...', 'success');
-      await initializeZSMClient(user);
       const reactivateResult = await authenticate(user, usePasskeys);
       if (!reactivateResult.success) {
         showFlash('flash-status', 'Reactivation failed', 'failure');
         return;
       }
-
       if (reactivateResult.challengeData) {
         updateChallengeDisplay(reactivateResult.challengeData.challenge, reactivateResult.challengeData.signedChallenge);
       }
-
       setSuspended(user, false);
       STATE.loginID = user;
       updateAuthIcons({ ishield: true, zsm: true, passkeys: usePasskeys });
@@ -1232,10 +1203,7 @@ async function login(btn = document.getElementById('login-btn')) {
       return;
     }
 
-    const usePasskeys = document.getElementById('use-passkeys-toggle').checked;
-    await initializeZSMClient(user);
-
-    // If user wants passkeys but none are enrolled yet, enroll them first
+    // Passkeys wanted but none enrolled yet: enroll them first
     if (usePasskeys && !hasPasskey) {
       showFlash('flash-status', 'Enrolling Passkeys+...', 'success');
       const enrollResult = await enroll(user, true);
@@ -1249,19 +1217,17 @@ async function login(btn = document.getElementById('login-btn')) {
         return;
       }
       STATE.loginID = user;
-      updateAuthIcons({ zsm: true, passkeys: true });
+      updateAuthIcons({ ishield: true, zsm: true, passkeys: true });
       showFlash('flash-status', 'Passkeys+ enrolled successfully', 'success');
       await updateUI();
       return;
     }
 
     const authResult = await authenticate(user, usePasskeys);
-
     if (!authResult.success) {
       showFlash('flash-status', 'Login failed', 'failure');
       return;
     }
-
     if (authResult.challengeData) {
       updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
     }
@@ -1274,7 +1240,7 @@ async function login(btn = document.getElementById('login-btn')) {
     }
 
     STATE.loginID = user;
-    updateAuthIcons({ zsm: true, passkeys: usePasskeys });
+    updateAuthIcons({ ishield: true, zsm: true, passkeys: usePasskeys });
     await updateUI();
   } catch (err) {
     console.error('[login] Error:', err);
@@ -1365,7 +1331,7 @@ async function suspendDevice() {
 
   if (isSuspended(user)) return;
 
-  const action = await showPopup('Suspend Passkeys+ login? You will need your FIDO USB key to reactivate.');
+  const action = await showPopup('Suspend Passkeys+ login? You will need your USB key to reactivate.');
   if (action === 'cancel') return;
 
   setSuspended(user, true);
