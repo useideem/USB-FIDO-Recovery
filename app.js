@@ -13,10 +13,10 @@
  *                       the simulated SNA number check (sna.js) and its
  *                       four indicators: iShield, Number Verified, Device
  *                       Bound, Passkey
- *   2. Login         -- the USB key touch first, every time, and the User
- *                       ID it returns must match the box; then authenticate()
- *                       with Passkeys+, or on an unbound device (an attendee
- *                       arriving from the registration QR) enroll() and the
+ *   2. Login         -- on a bound device authenticate() with Passkeys+, no
+ *                       key; on an unbound device (an attendee arriving from
+ *                       the registration QR) the USB key touch first, whose
+ *                       User ID must match the box, then enroll() and the
  *                       same SNA check
  *   3. Actions       -- step-up authenticate() per protected action
  *   3b. P2P Exchange -- after the step-up, a QR code another attendee scans;
@@ -1176,18 +1176,20 @@ async function trustDevice() {
 }
 
 // ---------------------------------------------------------------------------
-// login — the USB key first, every time, then Passkeys+. `btn` is whichever
+// login — the passkey alone on a bound device; the USB key only the first
+// time (binding) and after a suspension (reactivation). `btn` is whichever
 // button started it: Enter Game, or the exchange screen's Confirm.
 //
-// The key is the authority on who is logging in: the get runs before anything
-// else, and the User ID it hands back has to be the one in the box
-// (reconcileUserId: a different person stops the flow, a different spelling
-// of the same number is adopted). Only then does the device's own state
-// decide what follows: bind it (ZSM enroll) when it holds no credential,
-// reactivate it when it is suspended, otherwise authenticate.
+// The device's own state picks the ceremony. A device that holds a ZSM
+// credential for the typed User ID and is not suspended goes straight to the
+// Passkeys+ authenticate (plain ZSM when the toggle is off): no key. Any
+// other device asks the key first, and the User ID the key hands back has to
+// be the one in the box (reconcileUserId: a different person stops the flow,
+// a different spelling of the same number is adopted); then the device is
+// bound (ZSM enroll) or reactivated (ZSM authenticate, suspension cleared).
 // ---------------------------------------------------------------------------
 async function login(btn = document.getElementById('login-btn')) {
-  let user = getUsername();  // replaced by the key's own spelling once it answers
+  let user = getUsername();  // replaced by the key's own spelling when the key is asked
   if (!user) return;
 
   btn.classList.add('loading');
@@ -1195,9 +1197,69 @@ async function login(btn = document.getElementById('login-btn')) {
   btn.setAttribute('aria-disabled', 'true');
 
   try {
-    // Step 1: the key. A discoverable get, so whichever key is present
-    // answers with the identity it holds.
-    showFlash('flash-status', 'Touch your USB key...', 'success', 60000);
+    // Step 1: what this device already holds for that user
+    await initializeZSMClient(user);
+    let hasLocalZSM = false;
+    let hasPasskey = false;
+    try {
+      const status = await checkAllEnrollment(user);
+      if (status && !(status instanceof Error)) {
+        hasLocalZSM = status.hasZSMCred === true || !!status.zsmCredID;
+        hasPasskey = status.hasRemotePasskey === true;
+      }
+    } catch (_) {}
+    const usePasskeys = document.getElementById('use-passkeys-toggle').checked;
+    const suspended = isSuspended(user);
+
+    // A bound, active device: the passkey alone
+    if (hasLocalZSM && !suspended) {
+      // Passkeys wanted but none enrolled yet: enroll them first
+      if (usePasskeys && !hasPasskey) {
+        showFlash('flash-status', 'Enrolling Passkeys+...', 'success');
+        const enrollResult = await enroll(user, true);
+        if (!enrollResult || enrollResult === false || enrollResult instanceof Error) {
+          showFlash('flash-status', 'Passkeys+ enrollment failed', 'failure');
+          return;
+        }
+        // A device bound before the number check existed gets it here
+        if (!(await ensureNumberVerified(user))) {
+          await updateUI();
+          return;
+        }
+        STATE.loginID = user;
+        updateAuthIcons({ zsm: true, passkeys: true });
+        showFlash('flash-status', 'Passkeys+ enrolled successfully', 'success');
+        await updateUI();
+        return;
+      }
+
+      const authResult = await authenticate(user, usePasskeys);
+      if (!authResult.success) {
+        showFlash('flash-status', 'Login failed', 'failure');
+        return;
+      }
+      if (authResult.challengeData) {
+        updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
+      }
+
+      // A device bound before the number check existed gets it here; one
+      // that has it answers at once.
+      if (!(await ensureNumberVerified(user))) {
+        await updateUI();
+        return;
+      }
+
+      STATE.loginID = user;
+      updateAuthIcons({ zsm: true, passkeys: usePasskeys });
+      await updateUI();
+      return;
+    }
+
+    // Step 2: an unbound or suspended device asks the key. A discoverable
+    // get, so whichever key is present answers with the identity it holds.
+    showFlash('flash-status',
+      suspended ? 'Device suspended. Touch your USB key to reactivate...' : 'Touch your USB key...',
+      'success', 60000);
     const ishieldResult = await webauthnAuthenticate(user);
     if (!ishieldResult.success) {
       showFlash('flash-status',
@@ -1211,7 +1273,7 @@ async function login(btn = document.getElementById('login-btn')) {
       updateIShieldChallengeDisplay(ishieldResult.clientDataHash, ishieldResult.signatureHex);
     }
 
-    // Step 2: the User ID on screen has to be the credential the key holds.
+    // Step 3: the User ID on screen has to be the credential the key holds.
     // A different identity stops here; a different spelling of the same
     // number is adopted, so what is on screen is literally what is on the key.
     const confirmed = reconcileUserId(user, ishieldResult.authenticatedUser);
@@ -1221,19 +1283,6 @@ async function login(btn = document.getElementById('login-btn')) {
     }
     user = confirmed;
 
-    // Step 3: what this device already holds for that user
-    await initializeZSMClient(user);
-    let hasLocalZSM = false;
-    let hasPasskey = false;
-    try {
-      const status = await checkAllEnrollment(user);
-      if (status && !(status instanceof Error)) {
-        hasLocalZSM = status.hasZSMCred === true || !!status.zsmCredID;
-        hasPasskey = status.hasRemotePasskey === true;
-      }
-    } catch (_) {}
-    const usePasskeys = document.getElementById('use-passkeys-toggle').checked;
-
     // An unbound device: bind it (ZSM enroll, with Passkeys+ if the toggle is on)
     if (!hasLocalZSM) {
       await bindDevice(user, usePasskeys);
@@ -1241,63 +1290,21 @@ async function login(btn = document.getElementById('login-btn')) {
     }
 
     // A suspended device: the key touch above plus a Passkeys+ authenticate clear it
-    if (isSuspended(user)) {
-      showFlash('flash-status', 'Authenticating to complete reactivation...', 'success');
-      const reactivateResult = await authenticate(user, usePasskeys);
-      if (!reactivateResult.success) {
-        showFlash('flash-status', 'Reactivation failed', 'failure');
-        return;
-      }
-      if (reactivateResult.challengeData) {
-        updateChallengeDisplay(reactivateResult.challengeData.challenge, reactivateResult.challengeData.signedChallenge);
-      }
-      setSuspended(user, false);
-      STATE.loginID = user;
-      updateAuthIcons({ ishield: true, zsm: true, passkeys: usePasskeys });
-      await updateUI();
-      showFlash('flash-status', 'Device reactivated', 'success');
+    showFlash('flash-status', 'Authenticating to complete reactivation...', 'success');
+    await initializeZSMClient(user);
+    const reactivateResult = await authenticate(user, usePasskeys);
+    if (!reactivateResult.success) {
+      showFlash('flash-status', 'Reactivation failed', 'failure');
       return;
     }
-
-    // Passkeys wanted but none enrolled yet: enroll them first
-    if (usePasskeys && !hasPasskey) {
-      showFlash('flash-status', 'Enrolling Passkeys+...', 'success');
-      const enrollResult = await enroll(user, true);
-      if (!enrollResult || enrollResult === false || enrollResult instanceof Error) {
-        showFlash('flash-status', 'Passkeys+ enrollment failed', 'failure');
-        return;
-      }
-      // A device bound before the number check existed gets it here
-      if (!(await ensureNumberVerified(user))) {
-        await updateUI();
-        return;
-      }
-      STATE.loginID = user;
-      updateAuthIcons({ ishield: true, zsm: true, passkeys: true });
-      showFlash('flash-status', 'Passkeys+ enrolled successfully', 'success');
-      await updateUI();
-      return;
+    if (reactivateResult.challengeData) {
+      updateChallengeDisplay(reactivateResult.challengeData.challenge, reactivateResult.challengeData.signedChallenge);
     }
-
-    const authResult = await authenticate(user, usePasskeys);
-    if (!authResult.success) {
-      showFlash('flash-status', 'Login failed', 'failure');
-      return;
-    }
-    if (authResult.challengeData) {
-      updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
-    }
-
-    // A device bound before the number check existed gets it here; one
-    // that has it answers at once.
-    if (!(await ensureNumberVerified(user))) {
-      await updateUI();
-      return;
-    }
-
+    setSuspended(user, false);
     STATE.loginID = user;
     updateAuthIcons({ ishield: true, zsm: true, passkeys: usePasskeys });
     await updateUI();
+    showFlash('flash-status', 'Device reactivated', 'success');
   } catch (err) {
     console.error('[login] Error:', err);
     showFlash('flash-status', 'Login failed', 'failure');
