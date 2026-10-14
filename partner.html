@@ -57,7 +57,8 @@
     <div id="booth" hidden>
 
       <!-- PARTNER: one tile per entry in PARTNERS (partner.js), drawn by renderStrip,
-           until one is chosen; the chosen partner then stands in for the strip -->
+           until one is chosen; the chosen partner then stands in for the strip, large.
+           There is no way back on the page: re-point a booth with ?partner=<id> -->
       <section class="pt-partners" id="partners-section" aria-labelledby="partners-title">
         <h2 class="ft-section-title" id="partners-title">Partner</h2>
         <div class="pt-partner-strip" id="partner-strip" role="radiogroup" aria-label="Partner"></div>
@@ -65,7 +66,6 @@
       <div class="pt-chosen" id="partner-chosen" hidden>
         <img id="chosen-icon" class="pt-chosen-icon" alt="">
         <span class="pt-chosen-name" id="chosen-name"></span>
-        <a href="#" id="change-partner">Change</a>
       </div>
 
       <!-- Shown only in desktop Chrome, which cannot read a PIN-less key this way -->

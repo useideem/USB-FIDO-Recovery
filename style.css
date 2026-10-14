@@ -1633,13 +1633,15 @@ body {
   box-shadow: 0 0 0 3px var(--color-accent-bg);
 }
 
-/* The chosen partner, standing in for the strip once a tile is tapped */
+/* The chosen partner, standing in for the strip once a tile is tapped:
+   the icon large and centred, the name under it */
 .pt-chosen {
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
   margin-bottom: 20px;
-  padding-bottom: 16px;
+  padding-bottom: 18px;
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -1648,22 +1650,16 @@ body {
 }
 
 .pt-chosen-icon {
-  width: 48px;
-  height: 32px;
+  width: 100%;
+  max-width: 220px;
+  height: 120px;
   object-fit: contain;
 }
 
 .pt-chosen-name {
-  flex: 1;
-  font-size: 1rem;
-  font-weight: 700;
+  font-size: 1.5rem;
+  font-weight: 800;
   color: var(--color-text);
-}
-
-.pt-chosen a {
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--color-accent);
 }
 
 /* A self-service booth's card: the attendee's details, the QR code to the

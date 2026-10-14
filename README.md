@@ -770,8 +770,8 @@ Demo-swissbit/
   partner.html/.js     -- Partner booth: a shared password, a strip of partner tiles that hides once one
                           is chosen, then Identify reads the User ID off an iShield key and the sponsor's
                           preset and custom point buttons move the balance through the user API; the
-                          refreshment booths are self-service, one button that awards +50 and shows the
-                          attendee's name, phone number and a QR code to the demo site
+                          refreshment booths are self-service, one button that awards +50 once per key
+                          and shows the attendee's name, phone number and a QR code to the demo site
   partners/            -- The tile logos (RSA, Swissbit, HID; google.png only for the sponsor strips)
                           and the Twemoji ice cream, popcorn and bubbles (the oxygen bar)
   landing.html/.css    -- Conference landing page: neon sign, Login and Leader Board links, no script;

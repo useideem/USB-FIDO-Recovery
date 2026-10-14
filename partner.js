@@ -11,15 +11,17 @@
  * with ?partner=<id> so each booth gets its own link. Nothing about the
  * partner is sent anywhere: the user API has no field for it, so the choice
  * only decides which preset buttons appear and how the flash names the move.
- * Once a tile is tapped the strip hides and the chosen partner's icon and
- * name stand in for it, with a Change link that brings the strip back.
+ * Once a tile is tapped the strip hides and the chosen partner's icon, drawn
+ * large, and name stand in for it; there is no way back on the page, so a
+ * booth device is re-pointed with ?partner=<id>.
  *
  * The three refreshment booths (selfService in PARTNERS: Ice Cream, Popcorn,
  * Oxygen) are self-service: one button, Identify and Award Points, runs the
  * same get and lookup, shows the attendee's first name, last name and phone
  * number with a QR code of the demo site (LEADERBOARD_QR_URL) and the line
  * "View the leaderboard on your phone", and credits the partner's single
- * preset.
+ * preset, once per key: a localStorage marker on the booth device
+ * (AWARDED_PREFIX) turns a later press into the card alone.
  *
  * Identify runs the demo's open get (webauthnIdentify in ishield.js: empty
  * allowCredentials, userVerification discouraged, the security-key hint), so
@@ -85,6 +87,15 @@ export const PARTNERS = [
 
 /** What the QR code on a self-service booth opens: the demo site, where View Leaderboard lives. */
 export const LEADERBOARD_QR_URL = 'https://authenticate26.vercel.app';
+
+/**
+ * localStorage marker that this booth's device has credited its points to a
+ * key: AWARDED_PREFIX + partner id + ':' + User ID. Each attendee gets a
+ * self-service booth's points once (the owner's rule, 2026-10-14). Per
+ * device, like the unlock flag: the user API has no field for it, so a
+ * second device at the same booth would credit again.
+ */
+export const AWARDED_PREFIX = 'points_awarded:';
 
 /** The most a Custom button will send in one press, in points. */
 export const MAX_AMOUNT = 1000000;
@@ -257,6 +268,14 @@ function store(key, value) {
   } catch { /* nothing to do: the choice lasts for this page only */ }
 }
 
+function hasAwarded(partnerId, userId) {
+  return stored(`${AWARDED_PREFIX}${partnerId}:${userId}`) === '1';
+}
+
+function setAwarded(partnerId, userId) {
+  store(`${AWARDED_PREFIX}${partnerId}:${userId}`, '1');
+}
+
 function showFlash(message, state, duration = 6000) {
   const el = $('flash-status');
   clearTimeout(flashTimer);
@@ -356,9 +375,8 @@ function selectPartner(id) {
 /**
  * The booth for the chosen partner. Until one is chosen only the strip
  * shows. Once chosen the strip hides, the partner's icon and name take its
- * place with a Change link, and either the sponsor flow (Identify, the
- * account, presets and custom moves) or the self-service flow (one button)
- * appears.
+ * place, and either the sponsor flow (Identify, the account, presets and
+ * custom moves) or the self-service flow (one button) appears.
  */
 function renderBooth() {
   const chosen = !!partner;
@@ -459,13 +477,19 @@ async function renderQr(box, url) {
   }
 }
 
-/** The attendee's card on a self-service booth: name and number, then the QR code and its line when there is a record. */
-async function renderAward(userId, record) {
+/**
+ * The attendee's card on a self-service booth: name and number, then the QR
+ * code and its line when there is a record. The note says when there is no
+ * record, or when this booth has already credited this key.
+ */
+async function renderAward(userId, record, already = false) {
   $('award-first').textContent = String(record?.firstName || '').trim() || '--';
   $('award-last').textContent = String(record?.lastName || '').trim() || '--';
   $('award-phone').textContent = formatPhone(record?.phone || userId);
-  $('award-note').textContent = record ? '' : 'No account has this number. Register it on the registration page first.';
-  $('award-note').hidden = !!record;
+  $('award-note').textContent =
+    !record ? 'No account has this number. Register it on the registration page first.' :
+    already ? `This key already got its ${partner.name} points. Each attendee gets them once.` : '';
+  $('award-note').hidden = !!record && !already;
   $('award-qr').hidden = !record;
   $('award-message').hidden = !record;
   $('award-result').hidden = false;
@@ -475,8 +499,8 @@ async function renderAward(userId, record) {
 /**
  * Identify and Award Points: the same get and lookup as Identify, then the
  * attendee's card and the partner's single preset credited through adjust,
- * whose flash reports the new balance. Nothing stops a second press from
- * crediting again.
+ * whose flash reports the new balance. Once the credit has landed the key is
+ * marked on this device, and a later press draws the card alone.
  */
 async function identifyAndAward() {
   const btn = $('award-btn');
@@ -505,13 +529,18 @@ async function identifyAndAward() {
       showFlash(`Identified ${userId}, but the user database did not answer (${err.message}).`, 'failure', 12000);
       return;
     }
-    await renderAward(userId, record);
+    const already = hasAwarded(partner.id, userId);
+    await renderAward(userId, record, already);
     if (!record) {
       showFlash(`Identified ${userId}: no account on file`, 'failure', 8000);
       return;
     }
+    if (already) {
+      showFlash(`${partner.name}: this key already got its ${formatPoints(partner.presets[0])}.`, 'info', 8000);
+      return;
+    }
     account = { phone: userId, userId: record.userId, balance: Number(record.balance) };
-    await adjust(partner.name, partner.presets[0]);
+    if (await adjust(partner.name, partner.presets[0])) setAwarded(partner.id, userId);
   } finally {
     btn.disabled = false;
     btn.classList.remove('loading');
@@ -536,13 +565,15 @@ async function rereadBalance() {
  * adds, negative deducts, and a deduction the balance cannot cover is refused
  * here because the API would not refuse it. `label` names the move in the
  * flash: the partner for a preset, "<partner> custom credit" for the box.
+ *
+ * @returns {Promise<boolean>} True once the server has taken the move.
  */
 async function adjust(label, amount) {
-  if (!account || busy) return;
+  if (!account || busy) return false;
   const magnitude = Math.abs(amount);
   if (amount < 0 && account.balance < magnitude) {
     showFlash(`${label} declined: ${formatPoints(magnitude)} exceeds the balance of ${formatBalance(account.balance)}.`, 'failure', 8000);
-    return;
+    return false;
   }
   setBusy(true);
   showFlash(`${label}: ${amount < 0 ? 'deducting' : 'adding'} ${formatPoints(magnitude)}...`, 'info', 60000);
@@ -550,12 +581,14 @@ async function adjust(label, amount) {
     account.balance = await adjustBalance(account.userId, amount);
     $('account-balance').textContent = formatBalance(account.balance);
     showFlash(`${label}: ${formatPoints(magnitude)} ${amount < 0 ? 'deducted' : 'added'}. Balance is now ${formatBalance(account.balance)}.`, 'success', 8000);
+    return true;
   } catch (err) {
     // The PATCH may or may not have landed. Re-read rather than retry, so a
     // slow server never applies it twice.
     console.error('[partner] balance update failed:', err.message);
     await rereadBalance();
     showFlash(`${label} may not have gone through (${err.message}). The balance shown is what the server holds now.`, 'failure', 12000);
+    return false;
   } finally {
     setBusy(false);
   }
@@ -594,7 +627,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   selectPartner(stored(PARTNER_KEY));
   showGate(stored(UNLOCKED_KEY) !== '1');
-  $('change-partner').addEventListener('click', event => { event.preventDefault(); selectPartner(null); });
 
   $('identify-btn').addEventListener('click', () => identify());
   $('award-btn').addEventListener('click', () => identifyAndAward());
