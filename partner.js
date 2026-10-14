@@ -5,8 +5,9 @@
  *
  * The page opens locked. The one password every booth shares (PARTNER_PASSWORD,
  * in plain text below: this is a demo, not a secret) sets a flag in
- * localStorage so the booth's device stays unlocked across reloads; Lock in
- * the footer clears it. A strip of partner tiles sits at the top of the card;
+ * localStorage so the booth's device stays unlocked across reloads (the
+ * footer with its Lock, Register and Login links and the browser line went
+ * on 2026-10-14; clearing site data locks a device again). A strip of partner tiles sits at the top of the card;
  * the chosen one is highlighted, remembered in localStorage, and can be preset
  * with ?partner=<id> so each booth gets its own link. Nothing about the
  * partner is sent anywhere: the user API has no field for it, so the choice
@@ -293,14 +294,13 @@ function setBusy(on) {
 
 // ---- the gate ----
 
-/** Locked shows the password form alone; unlocked shows the booth and the Lock link. */
+/** Locked shows the password form alone; unlocked shows the booth. */
 function showGate(locked) {
   $('gate-section').hidden = !locked;
   $('booth').hidden = locked;
-  $('lock-link').hidden = locked;
 }
 
-/** The password form's submit: the right password unlocks this device until Lock. */
+/** The password form's submit: the right password unlocks this device until its site data is cleared. */
 function unlock(event) {
   event.preventDefault();
   const input = $('gate-password');
@@ -314,17 +314,6 @@ function unlock(event) {
   store(UNLOCKED_KEY, '1');
   showGate(false);
   showFlash(partner ? `Unlocked. This is the ${partner.name} booth.` : 'Unlocked. Choose the partner.', 'success');
-}
-
-/** Lock: forget the flag, drop whatever account was on screen, back to the form. */
-function lock() {
-  store(UNLOCKED_KEY, null);
-  account = null;
-  $('account-section').hidden = true;
-  $('award-result').hidden = true;
-  $('custom-amount').value = '';
-  showGate(true);
-  $('gate-password').focus();
 }
 
 // ---- the partner strip ----
@@ -604,16 +593,14 @@ function customAmount(label) {
   return amount;
 }
 
-/** Names the browser in the footer and warns in desktop Chrome, where the open get fails. */
+/** Warns in desktop Chrome, where the open get fails. */
 async function showBrowserInfo() {
-  const { label, chromium, desktop } = await detectBrowser();
-  $('browser-info').textContent = `Browser: ${label}`;
+  const { chromium, desktop } = await detectBrowser();
   $('chrome-warning').hidden = !(chromium && desktop);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
   $('gate-form').addEventListener('submit', unlock);
-  $('lock-link').addEventListener('click', event => { event.preventDefault(); lock(); });
 
   // The strip, then the partner: ?partner=<id> wins, is remembered, and comes
   // off the address bar; otherwise the remembered one; otherwise the first.

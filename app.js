@@ -19,7 +19,8 @@
  *                       USB Key, Phone# Verified, Device Bound, Passkey
  *   2. Actions       -- the balance in points, then a step-up authenticate()
  *                       per protected action; Authenticate adds 25 points
- *                       the first time, then shows 0
+ *                       the first time, then shows 0. A login lasts a day:
+ *                       a return within 24 hours lands here with no prompt
  *   2b. P2P Exchange -- after the step-up, a QR code another attendee scans;
  *                       they confirm, verify with their passkey, and both
  *                       phones then show the other's contact (api/exchange.js)
@@ -1039,6 +1040,8 @@ async function updateUI() {
 
   // Determine which screen to show
   if (STATE.loginID) {
+    // A fresh login starts the day-long session; a restored one keeps its time
+    if (readSession()?.user !== STATE.loginID) saveSession(STATE.loginID);
     const pendingCode = getPendingExchange();
     if (pendingCode) {
       // The passkey verification that just set loginID is what the scanned
@@ -1288,12 +1291,71 @@ async function handleProtectedAction(actionKey) {
 // ---------------------------------------------------------------------------
 async function logOut() {
   endExchange();
+  clearSession();
   resetClient();
   STATE.reset();
   account = null;
   accountFor = null;
   renderBalance();
   await updateUI();
+}
+
+// ---------------------------------------------------------------------------
+// Session — a login lasts a day (the owner's rule, 2026-10-14). updateUI
+// leaves { user, at } in localStorage the first time it sees a login for a
+// User ID, and a page load within SESSION_TTL_MS for the same User ID lands
+// on ACTIONS with no ceremony, provided the device is not suspended and
+// still holds the ZSM credential. The timestamp is the login's; a return
+// does not refresh it. Log Out clears it, Reset Device wipes it with the
+// rest, and a page opened from a P2P invite never restores it, so the
+// responder's confirm stays a verification.
+// ---------------------------------------------------------------------------
+const SESSION_KEY = 'session';
+const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** The stored session when it is for someone and under a day old, else null. */
+function readSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const { user, at } = JSON.parse(raw);
+    const age = Date.now() - Date.parse(at);
+    return user && Number.isFinite(age) && age >= 0 && age < SESSION_TTL_MS ? { user, at } : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveSession(user) {
+  try { localStorage.setItem(SESSION_KEY, JSON.stringify({ user, at: new Date().toISOString() })); } catch (_) { /* no storage: the session lasts this page */ }
+}
+
+function clearSession() {
+  try { localStorage.removeItem(SESSION_KEY); } catch (_) { /* nothing to clear */ }
+}
+
+/**
+ * On a page load: sets STATE.loginID again when this device logged `user`
+ * in within the last day and can still authenticate them. A device that has
+ * lost its ZSM credential drops the session instead.
+ *
+ * @returns {Promise<boolean>} True when the session was restored.
+ */
+async function restoreSession(user) {
+  const session = readSession();
+  if (!session || !user || session.user !== user || isSuspended(user)) return false;
+  let hasZSM = false;
+  try {
+    await initializeZSMClient(user);
+    const status = await checkAllEnrollment(user);
+    hasZSM = !!status && !(status instanceof Error) && (status.hasZSMCred === true || !!status.zsmCredID);
+  } catch (_) {}
+  if (!hasZSM) {
+    clearSession();
+    return false;
+  }
+  STATE.loginID = user;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -1453,6 +1515,10 @@ document.addEventListener('DOMContentLoaded', () => {
     usernameTimer = setTimeout(() => updateUI(), 800);
   });
 
-  // Detect existing credentials and show correct screen
-  updateUI();
+  // Still logged in from the last day? Then straight to the actions. Not
+  // from a P2P invite, whose confirm is the verification.
+  (async () => {
+    if (!getPendingExchange()) await restoreSession(getUsername());
+    await updateUI();
+  })();
 });
