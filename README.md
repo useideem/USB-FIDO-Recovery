@@ -350,12 +350,16 @@ All iShield code lives in [`ishield.js`](./ishield.js).
 
 ### How iShield Fits the Flow
 
-In the demo's Trust Device flow, the user enrolls their iShield USB key FIRST (raw WebAuthn), then enrolls ZSM + Passkeys+. The iShield key serves as a recovery mechanism -- if a device is "suspended" (e.g., reported compromised), the user must physically touch their iShield key to reactivate Passkeys+ login.
+In the demo, the attendee's iShield USB key is written at the registration page (`key-enroll.js`), and the first Enter Game on a phone reads it FIRST (a raw WebAuthn get, behind a dialog that names the four steps), then enrolls ZSM + Passkeys+ (behind a second dialog). The iShield key serves as a recovery mechanism -- if a device is "suspended" (e.g., reported compromised), the user must physically touch their iShield key to reactivate Passkeys+ login.
 
 ```
-Trust Device:
-  1. webauthnEnroll(user)    -- register iShield USB key
-  2. enroll(user, true)      -- register ZSM + Passkeys+
+First Enter Game (binding):
+  1. webauthnAuthenticate(user) -- touch iShield USB key; its user handle must match the User ID
+  2. enroll(user, true)         -- register ZSM + Passkeys+
+  3. verifyNumber(user)         -- the simulated carrier check (sna.js)
+
+Later Enter Game:
+  1. authenticate(user, true)   -- Passkeys+, no key
 
 Suspended Login (reactivation):
   1. webauthnAuthenticate(user) -- touch iShield USB key
@@ -698,31 +702,6 @@ Sets or clears the suspension flag for a user's device.
 
 ---
 
-#### `getPasskeysToggle(user)`
-
-Returns the saved Passkeys+ toggle preference.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `user` | `string` | Username |
-
-**Returns:** `boolean` -- defaults to `true` if not previously set.
-
----
-
-#### `setPasskeysToggle(user, value)`
-
-Persists the Passkeys+ toggle preference.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `user` | `string` | Username |
-| `value` | `boolean` | Toggle state to save |
-
-**Returns:** `void`
-
----
-
 #### `bufferToBase64url(buffer)`
 
 Converts an `ArrayBuffer` to a base64url-encoded string.
@@ -767,7 +746,6 @@ Computes SHA-256 hash of a string, returns hex.
 |----------|-------|-------|
 | `FIDO2_STORAGE_PREFIX` | `'fido2_credential:'` | localStorage key prefix for credential IDs |
 | `SUSPENDED_STORAGE_PREFIX` | `'passkeys_suspended:'` | localStorage key prefix for suspension flags |
-| `PASSKEYS_TOGGLE_PREFIX` | `'actions_passkeys_toggle:'` | localStorage key prefix for toggle preference |
 
 ---
 

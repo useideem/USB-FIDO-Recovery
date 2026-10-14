@@ -9,20 +9,24 @@
  * and handles screens, flash messages, popups, and event listeners.
  *
  * FLOW:
- *   1. Trust Device  -- webauthnEnroll() then enroll() with Passkeys+, then
- *                       the simulated SNA number check (sna.js) and its
- *                       four indicators: iShield, Number Verified, Device
- *                       Bound, Passkey
- *   2. Login         -- on a bound device authenticate() with Passkeys+, no
- *                       key; on an unbound device (an attendee arriving from
- *                       the registration QR) the USB key touch first, whose
- *                       User ID must match the box, then enroll() and the
- *                       same SNA check
- *   3. Actions       -- step-up authenticate() per protected action
- *   3b. P2P Exchange -- after the step-up, a QR code another attendee scans;
+ *   1. Enter Game    -- on a bound device authenticate() with Passkeys+, no
+ *                       key and no dialog; on an unbound device (an attendee
+ *                       arriving from the registration QR) a dialog naming
+ *                       the four steps, the USB key touch, whose User ID must
+ *                       match the box, a second dialog handing over to the
+ *                       passkey, enroll() with Passkeys+, then the simulated
+ *                       SNA number check (sna.js) and its four indicators:
+ *                       USB Key, Phone# Verified, Device Bound, Passkey
+ *   2. Actions       -- step-up authenticate() per protected action
+ *   2b. P2P Exchange -- after the step-up, a QR code another attendee scans;
  *                       they confirm, verify with their passkey, and both
  *                       phones then show the other's contact (api/exchange.js)
- *   4. Suspend       -- flag device as suspended, require iShield to reactivate
+ *   3. Suspend       -- flag device as suspended, require the USB key to
+ *                       reactivate
+ *
+ * There is no New or Passkeys toggle (removed 2026-10-14): the device's own
+ * state picks the ceremony, Passkeys+ is always part of it, and the User ID
+ * can be changed until the login completes.
  *
  * NOTE: state.js is loaded as a classic script (non-module) so that the
  * State class is available as a global. The stateChange custom events it
@@ -34,11 +38,7 @@ import {
   ENROLLMENT_MARKER_PREFIX,
   isSuspended,
   setSuspended,
-  getPasskeysToggle,
-  setPasskeysToggle,
-  webauthnEnroll,
-  webauthnAuthenticate,
-  webauthnIdentify
+  webauthnAuthenticate
 } from './ishield.js';
 
 import {
@@ -160,6 +160,84 @@ function hidePopup(action) {
     popupResolve(action);
     popupResolve = null;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Guide dialog -- the one-button dialog in front of a ceremony: what Enter
+// Game is about to do on a phone that is not bound yet, and the handoff from
+// the USB key to the passkey. The tap on its button is also the user gesture
+// the WebAuthn prompt that follows needs. Resolves 'ok' for the button and
+// 'cancel' for Escape; there is no cancel button (the owner's wording,
+// 2026-10-14).
+// ---------------------------------------------------------------------------
+
+/** The dialog in front of a first Enter Game: the four steps, then Start. */
+const ONBOARDING_GUIDE = {
+  title: "Let's get your phone ready.",
+  lead: 'We are going to do 4 things',
+  steps: [
+    'Verify your FIDO USB Key',
+    'Create a mobile device Passkey',
+    'Cryptographically bind device with ZSM',
+    'Verify phone number with carrier API'
+  ],
+  note: 'Start with the USB FIDO Key',
+  button: 'Start'
+};
+
+/** The handoff once the key has answered: the passkey is next. */
+const PASSKEY_GUIDE = {
+  title: "Now let's get your mobile device Passkey enrolled",
+  button: 'Continue'
+};
+
+let guideResolve = null;
+let guidePreviousFocus = null;
+
+function showGuide({ title, lead = '', steps = [], note = '', button = 'Continue' }) {
+  return new Promise((resolve) => {
+    const $ = (id) => document.getElementById(id);
+    guidePreviousFocus = document.activeElement;
+    $('guide-title').textContent = title;
+    $('guide-lead').textContent = lead;
+    $('guide-lead').hidden = !lead;
+    const list = $('guide-steps');
+    list.replaceChildren(...steps.map((text) => {
+      const item = document.createElement('li');
+      item.textContent = text;
+      return item;
+    }));
+    list.hidden = steps.length === 0;
+    $('guide-note').textContent = note;
+    $('guide-note').hidden = !note;
+    $('guide-start').textContent = button;
+    $('guide-popup').style.display = 'flex';
+    guideResolve = resolve;
+    $('guide-start').focus();
+    document.addEventListener('keydown', guideKeyHandler);
+  });
+}
+
+function guideKeyHandler(e) {
+  if (e.key === 'Escape') {
+    hideGuide('cancel');
+  } else if (e.key === 'Tab') {
+    // One button: focus stays on it
+    e.preventDefault();
+    document.getElementById('guide-start').focus();
+  }
+}
+
+function hideGuide(action) {
+  document.removeEventListener('keydown', guideKeyHandler);
+  document.getElementById('guide-popup').style.display = 'none';
+  if (guidePreviousFocus) {
+    guidePreviousFocus.focus();
+    guidePreviousFocus = null;
+  }
+  const resolve = guideResolve;
+  guideResolve = null;
+  if (resolve) resolve(action);
 }
 
 // ---------------------------------------------------------------------------
@@ -533,8 +611,7 @@ async function confirmExchange() {
   btn.classList.add('loading');
   btn.setAttribute('aria-busy', 'true');
   try {
-    const usePasskeys = document.getElementById('use-passkeys-toggle')?.checked === true;
-    const authResult = await authenticate(STATE.loginID, usePasskeys);
+    const authResult = await authenticate(STATE.loginID, true);
     if (!authResult.success) {
       showFlash('flash-status', 'Passkey verification failed', 'failure', 4000);
       return;
@@ -542,7 +619,7 @@ async function confirmExchange() {
     if (authResult.challengeData) {
       updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
     }
-    updateAuthIcons({ zsm: true, passkeys: usePasskeys });
+    updateAuthIcons({ zsm: true, passkeys: true });
     await completeExchange(STATE.loginID, exchange.code);
   } finally {
     btn.classList.remove('loading');
@@ -884,8 +961,7 @@ function updateSnaDisplay(record) {
 // showScreen — simple screen switcher
 // ---------------------------------------------------------------------------
 const SCREEN_ANNOUNCEMENTS = {
-  'SETUP': 'Setup screen. Enter your user ID and trust this device.',
-  'LOGIN': 'Login screen. Authenticate to continue.',
+  'LOGIN': 'Login screen. Enter your user ID and tap Enter Game.',
   'SNA': 'Phone number verification screen. Tap Verify my number.',
   'ACTIONS': 'Actions screen. You are logged in.',
   'EXCHANGE': 'P2P Contact Exchange screen.'
@@ -902,20 +978,12 @@ function showScreen(screenId) {
     target.setAttribute('aria-hidden', 'false');
   }
 
-  // Username field is readonly once logged in (ACTIONS, or EXCHANGE after the
-  // responder has verified), on SNA (the number being verified is the one on
-  // screen), and on LOGIN when "New" is off (existing user). A responder who
-  // has only scanned so far can still correct the User ID.
+  // The User ID can always be changed before logging in. It is read-only
+  // once logged in (ACTIONS, or EXCHANGE after the responder has verified)
+  // and on SNA (the number being verified is the one on screen). A
+  // responder who has only scanned so far can still correct it.
   const loggedInScreen = screenId === 'ACTIONS' || (screenId === 'EXCHANGE' && !!STATE.loginID);
-  const usernameEl = document.getElementById('username');
-  const isNew = document.getElementById('new-user-toggle').checked;
-  usernameEl.readOnly = loggedInScreen || screenId === 'SNA' || (screenId === 'LOGIN' && !isNew);
-
-  // Hide "New" toggle once logged in, on EXCHANGE throughout (whoever
-  // scanned a P2P QR has a key and takes the login path), and on SNA, which
-  // is mid-ceremony.
-  const newToggle = document.getElementById('new-user-toggle-container');
-  if (newToggle) newToggle.hidden = loggedInScreen || screenId === 'EXCHANGE' || screenId === 'SNA';
+  document.getElementById('username').readOnly = loggedInScreen || screenId === 'SNA';
 
   // Announce screen change to screen readers
   const announcer = document.getElementById('screen-announcer');
@@ -978,44 +1046,20 @@ async function refreshPills(user) {
 // ---------------------------------------------------------------------------
 async function updateUI() {
   const user = getUsername();
-  const { hasZSM, hasPasskey, fullyEnrolled, suspended } = await refreshPills(user);
+  const { fullyEnrolled, suspended } = await refreshPills(user);
 
   // Suspend button — enabled only when fully enrolled and not already suspended
   document.getElementById('suspend-device').disabled = !(fullyEnrolled && !suspended);
 
-  // Restore Use Passkeys toggle state
-  // On ACTIONS: disable if no passkey registered (can't use what doesn't exist)
-  // On LOGIN/SETUP: keep enabled so user can opt into passkeys enrollment
-  const passkeysToggleEl = document.getElementById('use-passkeys-toggle');
-  if (!hasPasskey && STATE.loginID) {
-    passkeysToggleEl.checked = false;
-    passkeysToggleEl.disabled = true;
-  } else {
-    passkeysToggleEl.checked = getPasskeysToggle(user);
-    passkeysToggleEl.disabled = false;
-  }
-
-  // Enable/disable Trust Device button
-  document.getElementById('trust-device-btn').disabled = !user;
-
-  // Login button text based on suspended state
+  // Enter Game needs a User ID; its label says when the device is suspended
   const loginBtn = document.getElementById('login-btn');
-  if (loginBtn) loginBtn.textContent = suspended ? 'Reactivate & Enter Game' : 'Enter Game';
-
-  // If ZSM is present, this user is already enrolled — force New off and disable toggle
-  const newToggleEl = document.getElementById('new-user-toggle');
-  if (hasZSM) {
-    newToggleEl.checked = false;
-    newToggleEl.disabled = true;
-  } else {
-    newToggleEl.disabled = false;
-  }
+  loginBtn.disabled = !user;
+  loginBtn.textContent = suspended ? 'Reactivate & Enter Game' : 'Enter Game';
 
   // The Silent Network Auth block on ACTIONS follows the stored check
   updateSnaDisplay(STATE.loginID ? getNumberVerification(STATE.loginID) : null);
 
-  // Determine which screen to show — driven by "New" toggle, not server-side passkey
-  const isNewUser = newToggleEl.checked;
+  // Determine which screen to show
   if (STATE.loginID) {
     const pendingCode = getPendingExchange();
     if (pendingCode) {
@@ -1036,25 +1080,22 @@ async function updateUI() {
     showScreen('SNA');
   } else if (exchange.active) {
     // Scanned a P2P QR and not verified yet: the confirm screen stays up
-    // whatever the toggles say.
     showScreen('EXCHANGE');
-  } else if (isNewUser) {
-    showScreen('SETUP');
   } else {
     showScreen('LOGIN');
   }
 }
 
 // ---------------------------------------------------------------------------
-// bindDevice — the steps after the key has vouched for `user`: the ZSM
-// enroll (with Passkeys+ if asked), the local key marker, the number check,
-// then the actions screen. Enter Game lands here from both screens once the
-// key holds the identity in the box.
+// bindDevice — the steps after the key has vouched for `user` and the guide
+// has handed over to the passkey: the ZSM + Passkeys+ enroll (steps 2 and 3
+// of the guide, one SDK call), the local key marker, the number check (step
+// 4), then the actions screen.
 // ---------------------------------------------------------------------------
-async function bindDevice(user, usePasskeys) {
-  showFlash('flash-status', 'Binding device...', 'success');
+async function bindDevice(user) {
+  showFlash('flash-status', 'Creating your passkey and binding this device...', 'success');
   await initializeZSMClient(user);
-  const enrollResult = await enroll(user, usePasskeys);
+  const enrollResult = await enroll(user, true);
   if (!enrollResult || enrollResult === false || enrollResult instanceof Error) {
     showFlash('flash-status', 'Device binding failed', 'failure');
     return false;
@@ -1068,125 +1109,33 @@ async function bindDevice(user, usePasskeys) {
 
   // The simulated SNA number check, ending on the four indicators
   if (!(await ensureNumberVerified(user))) {
-    showFlash('flash-status', 'Number not verified. Log in to try again.', 'failure', 4000);
+    showFlash('flash-status', 'Number not verified. Tap Enter Game to try again.', 'failure', 4000);
     await updateUI();
     return false;
   }
 
   STATE.loginID = user;
-  updateAuthIcons({ ishield: true, zsm: true, passkeys: usePasskeys });
+  updateAuthIcons({ ishield: true, zsm: true, passkeys: true });
   showFlash('flash-status', 'Device bound successfully', 'success');
   await updateUI();
   return true;
 }
 
 // ---------------------------------------------------------------------------
-// trustDevice — Enter Game with New on. The key is asked who it is first: one
-// that already holds an identity must hold the one in the box, and the device
-// is then bound to it (no second credential is written). Only a key that
-// answers with nothing (NotAllowedError: no credential for this site) gets a
-// credential written for the typed User ID, then ZSM + Passkeys+.
-// ---------------------------------------------------------------------------
-async function trustDevice() {
-  let user = getUsername();  // replaced by the key's own spelling when it already holds one
-  if (!user) return;
-
-  const btn = document.getElementById('trust-device-btn');
-  btn.classList.add('loading');
-  btn.setAttribute('aria-busy', 'true');
-  btn.setAttribute('aria-disabled', 'true');
-
-  try {
-    // Step 1: ask the key who it is
-    showFlash('flash-status', 'Touch your USB key...', 'success', 60000);
-    const identity = await webauthnIdentify();
-    if (identity.success) {
-      if (identity.clientDataHash) {
-        updateIShieldChallengeDisplay(identity.clientDataHash, identity.signatureHex);
-      }
-      const confirmed = reconcileUserId(user, identity.authenticatedUser);
-      if (!confirmed) {
-        showFlash('flash-status', keyMismatchMessage(user, identity.authenticatedUser), 'failure', 8000);
-        return;
-      }
-      user = confirmed;
-      // The key already vouches for this User ID: bind this device to it
-      await bindDevice(user, document.getElementById('use-passkeys-toggle').checked);
-      return;
-    }
-    if (identity.error?.name !== 'NotAllowedError') {
-      showFlash('flash-status', identity.error?.message || 'USB key authentication failed', 'failure');
-      return;
-    }
-
-    // Step 2: nothing on the key for this site (or the prompt was dismissed):
-    // write a credential for the typed User ID
-    showFlash('flash-status', 'No identity on this key yet. Touch it again to write one...', 'success', 60000);
-    try {
-      await webauthnEnroll(user);
-    } catch (err) {
-      showFlash('flash-status',
-        err.name === 'NotAllowedError' ? 'Cancelled or timed out' :
-        err.name === 'SecurityError' ? 'Security error — try HTTPS or localhost' :
-        err.name === 'InvalidStateError' ? 'Key already registered for this user' :
-        err.message || 'USB key enrollment failed',
-        'failure'
-      );
-      return;
-    }
-
-    if (!hasLocalEnrollmentMarker(user)) {
-      showFlash('flash-status', 'USB key enrollment failed or cancelled', 'failure');
-      return;
-    }
-
-    // Step 3: Enroll ZSM + Passkeys+
-    const usePasskeys = document.getElementById('use-passkeys-toggle').checked;
-    showFlash('flash-status', usePasskeys ? 'Enrolling device with ZSM + Passkeys+...' : 'Enrolling device with ZSM...', 'success');
-    await initializeZSMClient(user);
-    const result = await enroll(user, usePasskeys);
-
-    if (!result || result === false || result instanceof Error) {
-      showFlash('flash-status', 'ZSM enrollment failed', 'failure');
-      await updateUI();
-      return;
-    }
-
-    // Step 3: the simulated SNA number check, ending on the four indicators
-    if (!(await ensureNumberVerified(user))) {
-      showFlash('flash-status', 'Number not verified. Log in to try again.', 'failure', 4000);
-      await updateUI();
-      return;
-    }
-
-    // Success — update state and show actions
-    STATE.loginID = user;
-    showFlash('flash-status', 'Device trusted successfully', 'success');
-    await updateUI();
-
-  } catch (err) {
-    console.error('[trustDevice] Error:', err);
-    showFlash('flash-status', 'Enter Game failed', 'failure');
-    await updateUI();
-  } finally {
-    btn.classList.remove('loading');
-    btn.removeAttribute('aria-busy');
-    btn.removeAttribute('aria-disabled');
-  }
-}
-
-// ---------------------------------------------------------------------------
-// login — the passkey alone on a bound device; the USB key only the first
-// time (binding) and after a suspension (reactivation). `btn` is whichever
-// button started it: Enter Game, or the exchange screen's Confirm.
+// login — Enter Game. The passkey alone on a bound device; the USB key only
+// the first time (binding) and after a suspension (reactivation). `btn` is
+// whichever button started it: Enter Game, or the exchange screen's Confirm.
 //
 // The device's own state picks the ceremony. A device that holds a ZSM
 // credential for the typed User ID and is not suspended goes straight to the
-// Passkeys+ authenticate (plain ZSM when the toggle is off): no key. Any
-// other device asks the key first, and the User ID the key hands back has to
-// be the one in the box (reconcileUserId: a different person stops the flow,
-// a different spelling of the same number is adopted); then the device is
-// bound (ZSM enroll) or reactivated (ZSM authenticate, suspension cleared).
+// Passkeys+ authenticate: no key, no dialog. A device with no credential for
+// it is walked through the four steps: the guide dialog names them and its
+// Start runs the open get (the tap is the user gesture the prompt needs); the
+// User ID the key hands back has to be the one in the box (reconcileUserId: a
+// different person stops the flow, a different spelling of the same number is
+// adopted); a second dialog hands over to the passkey; and bindDevice does
+// the ZSM + Passkeys+ enroll and the number check. A suspended device asks
+// the key, then reactivates with the passkey, with no dialog.
 // ---------------------------------------------------------------------------
 async function login(btn = document.getElementById('login-btn')) {
   let user = getUsername();  // replaced by the key's own spelling when the key is asked
@@ -1208,13 +1157,14 @@ async function login(btn = document.getElementById('login-btn')) {
         hasPasskey = status.hasRemotePasskey === true;
       }
     } catch (_) {}
-    const usePasskeys = document.getElementById('use-passkeys-toggle').checked;
     const suspended = isSuspended(user);
 
     // A bound, active device: the passkey alone
     if (hasLocalZSM && !suspended) {
-      // Passkeys wanted but none enrolled yet: enroll them first
-      if (usePasskeys && !hasPasskey) {
+      // Bound without a passkey (a binding from before the passkey was
+      // always part of it): enroll one first, behind the same handoff dialog
+      if (!hasPasskey) {
+        if (await showGuide(PASSKEY_GUIDE) !== 'ok') return;
         showFlash('flash-status', 'Enrolling Passkeys+...', 'success');
         const enrollResult = await enroll(user, true);
         if (!enrollResult || enrollResult === false || enrollResult instanceof Error) {
@@ -1233,7 +1183,7 @@ async function login(btn = document.getElementById('login-btn')) {
         return;
       }
 
-      const authResult = await authenticate(user, usePasskeys);
+      const authResult = await authenticate(user, true);
       if (!authResult.success) {
         showFlash('flash-status', 'Login failed', 'failure');
         return;
@@ -1250,13 +1200,19 @@ async function login(btn = document.getElementById('login-btn')) {
       }
 
       STATE.loginID = user;
-      updateAuthIcons({ zsm: true, passkeys: usePasskeys });
+      updateAuthIcons({ zsm: true, passkeys: true });
       await updateUI();
       return;
     }
 
-    // Step 2: an unbound or suspended device asks the key. A discoverable
-    // get, so whichever key is present answers with the identity it holds.
+    // Step 2: a device with nothing for this User ID sees the guide first:
+    // the four steps, and Start, whose tap is what the key prompt needs.
+    if (!hasLocalZSM) {
+      if (await showGuide(ONBOARDING_GUIDE) !== 'ok') return;
+    }
+
+    // Step 3: the key. A discoverable get, so whichever key is present
+    // answers with the identity it holds.
     showFlash('flash-status',
       suspended ? 'Device suspended. Touch your USB key to reactivate...' : 'Touch your USB key...',
       'success', 60000);
@@ -1264,16 +1220,16 @@ async function login(btn = document.getElementById('login-btn')) {
     if (!ishieldResult.success) {
       showFlash('flash-status',
         ishieldResult.error?.name === 'NotAllowedError'
-          ? 'Cancelled or timed out'
+          ? 'Cancelled, timed out, or nothing on this key for this site yet. Enroll the key on the registration page first.'
           : ishieldResult.error?.message || 'USB key authentication failed',
-        'failure');
+        'failure', 6000);
       return;
     }
     if (ishieldResult.clientDataHash) {
       updateIShieldChallengeDisplay(ishieldResult.clientDataHash, ishieldResult.signatureHex);
     }
 
-    // Step 3: the User ID on screen has to be the credential the key holds.
+    // Step 4: the User ID on screen has to be the credential the key holds.
     // A different identity stops here; a different spelling of the same
     // number is adopted, so what is on screen is literally what is on the key.
     const confirmed = reconcileUserId(user, ishieldResult.authenticatedUser);
@@ -1282,17 +1238,19 @@ async function login(btn = document.getElementById('login-btn')) {
       return;
     }
     user = confirmed;
+    showFlash('flash-status', 'USB key verified', 'success');
 
-    // An unbound device: bind it (ZSM enroll, with Passkeys+ if the toggle is on)
+    // An unbound device: hand over to the passkey, then bind (ZSM + Passkeys+)
     if (!hasLocalZSM) {
-      await bindDevice(user, usePasskeys);
+      if (await showGuide(PASSKEY_GUIDE) !== 'ok') return;
+      await bindDevice(user);
       return;
     }
 
     // A suspended device: the key touch above plus a Passkeys+ authenticate clear it
     showFlash('flash-status', 'Authenticating to complete reactivation...', 'success');
     await initializeZSMClient(user);
-    const reactivateResult = await authenticate(user, usePasskeys);
+    const reactivateResult = await authenticate(user, true);
     if (!reactivateResult.success) {
       showFlash('flash-status', 'Reactivation failed', 'failure');
       return;
@@ -1302,7 +1260,7 @@ async function login(btn = document.getElementById('login-btn')) {
     }
     setSuspended(user, false);
     STATE.loginID = user;
-    updateAuthIcons({ ishield: true, zsm: true, passkeys: usePasskeys });
+    updateAuthIcons({ ishield: true, zsm: true, passkeys: true });
     await updateUI();
     showFlash('flash-status', 'Device reactivated', 'success');
   } catch (err) {
@@ -1326,8 +1284,7 @@ async function handleProtectedAction(actionKey) {
     return;
   }
 
-  const usePasskeys = document.getElementById('use-passkeys-toggle')?.checked === true;
-  const authResult = await authenticate(STATE.loginID, usePasskeys);
+  const authResult = await authenticate(STATE.loginID, true);
 
   if (!authResult.success) {
     showFlash('action-status', `${actionLabel} Failed`, 'failure', 2000);
@@ -1337,7 +1294,7 @@ async function handleProtectedAction(actionKey) {
   if (authResult.challengeData) {
     updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
   }
-  updateAuthIcons({ zsm: true, passkeys: usePasskeys });
+  updateAuthIcons({ zsm: true, passkeys: true });
 
   // P2P Contact Exchange has its own screen: the step-up above is what
   // authorizes issuing a code, and the exchange takes it from there.
@@ -1374,22 +1331,17 @@ async function logOut() {
 }
 
 // ---------------------------------------------------------------------------
-// purgeStorage
+// purgeStorage — Reset Device: everything this device holds goes, except the
+// User ID, and the page reloads on its bare path so a ?userid= from the
+// registration QR is not read again. It comes back on LOGIN with the User
+// ID editable, as it always is before a login.
 // ---------------------------------------------------------------------------
-// Reset Device leaves this behind for the next page load, so it comes back
-// with New on and the User ID editable, whatever the page's URL and the
-// browser's form-state restoration would make of the toggle.
-const JUST_RESET_KEY = 'justReset';
-
 function purgeStorage() {
   const username = getUsername();
   localStorage.clear();
   sessionStorage.clear();
   if (username) localStorage.setItem('username', username);
   try { indexedDB.deleteDatabase('ideem'); } catch (_) { /* ignore */ }
-  // Come back as a new user, on the bare page: a ?userid= from the
-  // registration QR would otherwise switch New off again on the reload.
-  sessionStorage.setItem(JUST_RESET_KEY, '1');
   window.location.replace(window.location.pathname);
 }
 
@@ -1406,7 +1358,6 @@ async function suspendDevice() {
   if (action === 'cancel') return;
 
   setSuspended(user, true);
-  document.getElementById('new-user-toggle').checked = false;
   logOut();
   await updateUI();
 }
@@ -1415,10 +1366,7 @@ async function suspendDevice() {
 // DOMContentLoaded — wire up event listeners
 // ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
-  // Trust Device
-  document.getElementById('trust-device-btn').addEventListener('click', () => trustDevice());
-
-  // Login
+  // Enter Game
   document.getElementById('login-btn').addEventListener('click', () => login());
 
   // Protected action buttons
@@ -1436,11 +1384,6 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.removeAttribute('aria-disabled');
       }
     });
-  });
-
-  // Persist Use Passkeys toggle state
-  document.getElementById('use-passkeys-toggle').addEventListener('change', (e) => {
-    setPasskeysToggle(getUsername(), e.target.checked);
   });
 
   // Log Out
@@ -1472,6 +1415,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('popup-continue').addEventListener('click', () => hidePopup('continue'));
   document.getElementById('popup-cancel').addEventListener('click', () => hidePopup('cancel'));
 
+  // The guide dialog's one button
+  document.getElementById('guide-start').addEventListener('click', () => hideGuide('ok'));
+
   // Restore username from localStorage
   const savedUsername = localStorage.getItem('username');
   if (savedUsername) {
@@ -1480,31 +1426,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Auto-populate from URL parameters. ?userid= is what the registration
   // page's QR code carries: the attendee scans it and arrives with their
-  // number already in the field, having typed nothing.
+  // number already in the field, having typed nothing. Enter Game then reads
+  // the key, which holds that number, and binds this phone to it.
   const urlParams = new URLSearchParams(window.location.search);
   const urlUserId = urlParams.get('userid');
   if (urlUserId) {
     document.getElementById('username').value = urlUserId;
     localStorage.setItem('username', urlUserId);
-    // Which path they take depends on the page that sent them. The
-    // registration QR (register.html) sends somebody whose number was written
-    // to a key a moment ago, an existing user on a new device: New OFF routes
-    // them to the login path, which READS the key and checks its user handle
-    // against this field, where New ON would write a second credential to the
-    // same key for the same number. A link with &new=1 forces New ON for an
-    // attendee with nothing on a key yet, who then goes to Trust Device,
-    // which creates one; no page emits that today. Passkeys is left
-    // as the attendee last set it (on by default), so the binding enrolls a
-    // Passkeys+ passkey too and the Passkey indicator after the number check
-    // lights.
-    document.getElementById('new-user-toggle').checked = urlParams.get('new') === '1';
-  }
-
-  // Straight back from Reset Device: a new user, so the User ID can be
-  // changed. The marker is consumed here, so a later reload is ordinary.
-  if (sessionStorage.getItem(JUST_RESET_KEY)) {
-    sessionStorage.removeItem(JUST_RESET_KEY);
-    document.getElementById('new-user-toggle').checked = true;
   }
 
   // ?exchange= is what another attendee's P2P QR carries. The code goes to
@@ -1529,12 +1457,7 @@ document.addEventListener('DOMContentLoaded', () => {
     history.replaceState(null, '', location.pathname + (query ? `?${query}` : ''));
   }
   const pendingExchange = getPendingExchange();
-  if (pendingExchange) {
-    // Whoever scanned is an attendee with a key: the login path, not the
-    // create path, same as arriving from the registration QR.
-    document.getElementById('new-user-toggle').checked = false;
-    openExchangeInvite(pendingExchange);
-  }
+  if (pendingExchange) openExchangeInvite(pendingExchange);
 
   // ?msg= — show flash message from redirect
   const urlMsg = urlParams.get('msg');
@@ -1542,19 +1465,12 @@ document.addEventListener('DOMContentLoaded', () => {
     showFlash('flash-status', urlMsg, 'success', 6000);
   }
 
-  // "New" toggle — switching it re-routes to SETUP or LOGIN
-  document.getElementById('new-user-toggle').addEventListener('change', () => updateUI());
-
-  // Show hint when clicking readonly username field. The field is readonly for
-  // two different reasons, and the way out differs: on ACTIONS the session owns
-  // the identity, while on LOGIN it is an existing user's number -- which is
-  // also the state somebody arriving from the registration QR lands in.
+  // Show hint when clicking the read-only username field: the session owns
+  // the identity once logged in, and the number check owns it while it runs.
   document.getElementById('username').addEventListener('click', (e) => {
     if (!e.target.readOnly) return;
     showFlash('flash-status',
-      STATE.loginID ? 'Reset Device before changing User ID' :
-      snaResolve ? 'Cancel the number check to change the User ID' :
-      'Switch New on to change the User ID',
+      STATE.loginID ? 'Log Out to change the User ID' : 'Cancel the number check to change the User ID',
       'failure', 3000);
   });
 
@@ -1563,7 +1479,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('username').addEventListener('input', (e) => {
     const user = getUsername();
     localStorage.setItem('username', user);
-    document.getElementById('trust-device-btn').disabled = !user;
+    document.getElementById('login-btn').disabled = !user;
 
     if (usernameTimer) clearTimeout(usernameTimer);
     usernameTimer = setTimeout(() => updateUI(), 800);

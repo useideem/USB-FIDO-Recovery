@@ -55,32 +55,13 @@
              autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
              inputmode="numeric"
              data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
-      <div class="toggle-stack" id="toggle-stack">
-        <div class="toggle-inline" id="new-user-toggle-container">
-          <span class="toggle-inline-label">New</span>
-          <label class="toggle-switch toggle-sm">
-            <input type="checkbox" id="new-user-toggle" checked>
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-        <div class="toggle-inline">
-          <span class="toggle-inline-label">Passkeys</span>
-          <label class="toggle-switch toggle-sm">
-            <input type="checkbox" id="use-passkeys-toggle" checked>
-            <span class="toggle-slider"></span>
-          </label>
-        </div>
-      </div>
     </div>
 
-    <!-- SETUP screen — new device, no credentials -->
-    <div class="screen active" id="SETUP">
-      <button id="trust-device-btn" class="btn btn-primary" disabled>Enter Game</button>
-    </div>
-
-    <!-- LOGIN screen — device trusted, user logged out -->
-    <div class="screen" id="LOGIN">
-      <button id="login-btn" class="btn btn-primary">Enter Game</button>
+    <!-- LOGIN screen — logged out. Enter Game reads the device: a bound one
+         logs in on the passkey alone; an unbound one is walked through the
+         four steps the guide dialog below names. -->
+    <div class="screen active" id="LOGIN">
+      <button id="login-btn" class="btn btn-primary" disabled>Enter Game</button>
     </div>
 
     <!-- ACTIONS screen — logged in -->
@@ -253,6 +234,22 @@
       <div class="popup-buttons">
         <button id="popup-cancel" class="btn btn-secondary">Cancel</button>
         <button id="popup-continue" class="btn btn-primary">Continue</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Guide dialog: what Enter Game is about to do on a phone that is not
+       bound yet, and the handoff from the USB key to the passkey. One
+       button; its tap is also the user gesture the WebAuthn prompt that
+       follows needs. app.js fills it from ONBOARDING_GUIDE and PASSKEY_GUIDE. -->
+  <div id="guide-popup" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="guide-title">
+    <div class="popup-card">
+      <p id="guide-title" class="popup-title"></p>
+      <p id="guide-lead" class="popup-lead" hidden></p>
+      <ol id="guide-steps" class="popup-steps" hidden></ol>
+      <p id="guide-note" class="popup-note" hidden></p>
+      <div class="popup-buttons">
+        <button id="guide-start" class="btn btn-primary">Start</button>
       </div>
     </div>
   </div>

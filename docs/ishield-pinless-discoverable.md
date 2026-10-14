@@ -281,14 +281,13 @@ https://authenticate26.vercel.app/?userid=9135551234
 `app.js` reads `?userid=` on load and puts it in the User ID field. The value
 is the bare digits, and nothing validates its shape.
 
-It also switches **New** off. That matters more than it looks: the toggle
-picks the ceremony. New on routes to `trustDevice()`, which calls
-`webauthnEnroll` -- a **create**, which on a key that already holds this number
-would write a second credential for the same person. New off routes to
-`login()`, which calls `webauthnAuthenticate` -- a **get**, which is the whole
+Enter Game then calls `webauthnAuthenticate` -- a **get**, which is the whole
 point of arriving from the booth. Somebody scanning the QR was enrolled a
-moment ago, so they are an existing user on a new device, and that is the path
-they belong on.
+moment ago, so they are an existing user on a new device. (Until 2026-10-14 a
+**New** toggle also had to be off for that: New on routed to `trustDevice()`,
+whose `webauthnEnroll` **create** would have written a second credential for
+the same person to the key. The toggle and that path are gone; the demo page
+only ever reads a key now.)
 
 ### The User ID on screen has to be the credential on the key
 

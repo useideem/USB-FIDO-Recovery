@@ -66,13 +66,6 @@ export const ENROLLMENT_MARKER_PREFIX = 'ishield_enrolled:';
  */
 export const SUSPENDED_STORAGE_PREFIX = 'passkeys_suspended:';
 
-/**
- * localStorage key prefix for the Passkeys+ toggle preference.
- * Full key = PASSKEYS_TOGGLE_PREFIX + username
- * Value = 'true' or 'false' (defaults to true when absent)
- */
-export const PASSKEYS_TOGGLE_PREFIX = 'actions_passkeys_toggle:';
-
 // ---------------------------------------------------------------------------
 // Credential storage helpers
 // ---------------------------------------------------------------------------
@@ -119,34 +112,6 @@ export function setSuspended(user, value) {
   const key = user ? SUSPENDED_STORAGE_PREFIX + user : null;
   if (!key) return;
   value ? localStorage.setItem(key, 'true') : localStorage.removeItem(key);
-}
-
-/**
- * Returns the saved state of the Passkeys+ toggle for this user.
- *
- * This persists the user's preference between sessions so the UI
- * toggle reflects their last choice when they return.
- *
- * @param {string} user - The username.
- * @returns {boolean} The saved toggle value, defaults to true if not set.
- */
-export function getPasskeysToggle(user) {
-  const key = user ? PASSKEYS_TOGGLE_PREFIX + user : null;
-  if (!key) return true;
-  const val = localStorage.getItem(key);
-  return val === null ? true : val === 'true';
-}
-
-/**
- * Persists the Passkeys+ toggle preference for this user.
- *
- * @param {string} user - The username.
- * @param {boolean} value - The toggle state to save.
- */
-export function setPasskeysToggle(user, value) {
-  const key = user ? PASSKEYS_TOGGLE_PREFIX + user : null;
-  if (!key) return;
-  localStorage.setItem(key, String(value));
 }
 
 // ---------------------------------------------------------------------------
