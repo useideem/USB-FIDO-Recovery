@@ -5,8 +5,8 @@
  * Register opens this computer's camera and decodes frames until a QR code is
  * read. The code on a conference badge is the attendee's confirmation number,
  * which the user API resolves to a record (GET /users/conf/:confNumber, see
- * docs/user-api.md section 3b): first name, last name, phone, email. Those go
- * on screen. Enroll FIDO Key then writes the phone number, as bare digits,
+ * docs/user-api.md section 3b): first name, last name, phone, email, company.
+ * Those go on screen. Enroll FIDO Key then writes the phone number, as bare digits,
  * onto the inserted key as a discoverable credential (key-enroll.js: the
  * measured create the key tester defaults to), and only then does a second
  * QR code appear, pointing at the demo with ?userid=<digits>. The attendee
@@ -15,7 +15,7 @@
  * key: ZSM + Passkeys+ enrollment and the number check follow.
  *
  * A badge the database does not know opens a form instead: first name, last
- * name, phone, email, and a Register button that adds the attendee (see
+ * name, phone, email, company, and a Register button that adds the attendee (see
  * saveAttendee for what the API keeps) and then carries on exactly as for a
  * known badge. Manually Enter User opens the same form with no badge at all,
  * for an attendee without one or a badge that will not scan.
@@ -165,22 +165,23 @@ function registrationNote(confNumber) {
 }
 
 /**
- * Checks the registration form. Returns { record } with the names trimmed,
- * the phone as bare digits and a null email when none was given, or
- * { error } with one line to show.
+ * Checks the registration form. Returns { record } with the names and the
+ * company trimmed, the phone as bare digits and a null email or company
+ * when none was given, or { error } with one line to show.
  */
-export function validateAttendee({ firstName, lastName, phone, email }) {
+export function validateAttendee({ firstName, lastName, phone, email, company }) {
   const first = String(firstName || '').trim();
   const last = String(lastName || '').trim();
   const digits = normalizePhone(phone);
   const mail = String(email || '').trim();
+  const firm = String(company || '').trim();
   if (!first || !last) return { error: 'First and last name are both needed.' };
   if (!digits) return { error: 'A phone number is needed; it becomes the User ID.' };
   if (digits.length < MIN_DIGITS || digits.length > MAX_DIGITS) {
     return { error: `That phone number has ${digits.length} digits; it needs ${MIN_DIGITS} to ${MAX_DIGITS}.` };
   }
   if (mail && !EMAIL_PATTERN.test(mail)) return { error: 'That email address does not look right.' };
-  return { record: { firstName: first, lastName: last, phone: digits, email: mail || null } };
+  return { record: { firstName: first, lastName: last, phone: digits, email: mail || null, company: firm || null } };
 }
 
 /**
@@ -199,19 +200,22 @@ export function validateAttendee({ firstName, lastName, phone, email }) {
  *      than a duplicate, which the API would allow.
  *   3. POST /users                   a new record.
  *
- * email and confNumber go in every body. The API discards both today (they
- * come back null), which is why the badge ID is also written into
- * customAttrib, a field it keeps, and why the result reports `byBadge`: true
- * when a read by confirmation number finds the record afterwards, false when
- * only the phone number will. A manual entry has no badge, so for it
- * `byBadge` is always false and only steps 2 and 3 run.
+ * email, Company (the API's spelling) and confNumber go in every body. Since
+ * 2026-10-14 the API keeps email and Company on a POST, though no read
+ * returns them and the PUT routes still ignore them. confNumber it still
+ * discards everywhere (it comes back null), which is why the badge ID is
+ * also written into customAttrib, a field it keeps, and why the result
+ * reports `byBadge`: true when a read by confirmation number finds the
+ * record afterwards, false when only the phone number will. A manual entry
+ * has no badge, so for it `byBadge` is always false and only steps 2 and 3
+ * run.
  *
  * @returns {Promise<{ how: 'conf'|'update'|'create', byBadge: boolean, record: object }>}
  */
-export async function saveAttendee({ confNumber, firstName, lastName, phone, email }, fetchImpl = fetch) {
+export async function saveAttendee({ confNumber, firstName, lastName, phone, email, company }, fetchImpl = fetch) {
   const headers = { 'Content-Type': 'application/json' };
   const badge = confNumber || null;
-  const fields = { firstName, lastName, phone, email, confNumber: badge };
+  const fields = { firstName, lastName, phone, email, Company: company ?? null, confNumber: badge };
 
   const byConf = badge ? await fetchImpl(`${DB_BASE}/users/conf/${encodeURIComponent(badge)}`, {
     method: 'PUT',
@@ -444,7 +448,8 @@ async function registerAttendee() {
     firstName: $('new-first-name').value,
     lastName: $('new-last-name').value,
     phone: $('new-phone').value,
-    email: $('new-email').value
+    email: $('new-email').value,
+    company: $('new-company').value
   });
   if (checked.error) {
     showFlash(checked.error, 'failure');
@@ -467,13 +472,24 @@ async function registerAttendee() {
   }
 
   $('new-attendee-section').hidden = true;
-  // What was typed, under what the database now holds; the email stays on
-  // screen even when the API dropped it, and the note below says so.
-  const record = { ...checked.record, ...saved.record, email: saved.record?.email || checked.record.email, confNumber: id };
+  // What was typed, under what the database now holds. The email and company
+  // stay on screen whatever the API kept: a create stores them, an update of
+  // a record the phone number already had does not, and the note says which.
+  const record = {
+    ...checked.record,
+    ...saved.record,
+    email: saved.record?.email || checked.record.email,
+    company: saved.record?.Company || checked.record.company,
+    confNumber: id
+  };
   showFlash(`Registered ${attendeeName(record)}`, 'success');
-  showAttendee(record, id, saved.byBadge ? '' : id
-    ? 'Saved as name and phone number. The user database has no field for the badge ID or email yet, so scanning this badge again will not find this record; the demo only needs the phone number.'
-    : 'Saved as name and phone number. The user database has no field for email yet; the demo only needs the phone number.');
+  const kept = saved.how === 'update'
+    ? 'This phone number was already in the user database, so that record was updated with the name; the database keeps email and company only on a record it creates.'
+    : '';
+  const badgeNote = id && !saved.byBadge
+    ? 'The user database has no field for the badge ID, so scanning this badge again will not find this record; the demo only needs the phone number.'
+    : '';
+  showAttendee(record, id, [kept, badgeNote].filter(Boolean).join(' '));
 }
 
 /** Fills the details section and, when the record has a number, offers the key step. */
@@ -481,6 +497,7 @@ function showAttendee(record, id, note = '') {
   $('attendee-name').textContent = attendeeName(record);
   $('attendee-phone').textContent = record.phone ? formatPhone(record.phone) : 'not on record';
   $('attendee-email').textContent = record.email || 'not on record';
+  $('attendee-company').textContent = record.Company || record.company || 'not on record';
   $('attendee-id').textContent = record.confNumber || id || 'none, entered manually';
   $('attendee-section').hidden = false;
 

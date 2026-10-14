@@ -5,8 +5,9 @@ The demo's user records live in an Express service at
 enrollment page writes to it; the retrieval side reads from it, keyed by the
 phone number the iShield Key hands back.
 
-Everything below was measured against the live service (2026-09-22, 2026-10-02
-and 2026-10-09) unless a line says otherwise. The Postman collection the API's
+Everything below was measured against the live service (2026-09-22, 2026-10-02,
+2026-10-09 and, for the create route's new fields, 2026-10-14) unless a line
+says otherwise. The Postman collection the API's
 owner shared is beside this file as `IdeemAPI.postman_collection.json`; it is
 the list of the 15 routes, but it carries no saved responses and no bodies for
 its PUT requests, so it says what exists, not how it behaves.
@@ -130,7 +131,7 @@ which the owner's email gave as the example for that route.
 | `GET /users/conf/kvnlhy66k2p` | 200, the **same record** -- the lookup is **case-insensitive**, unlike the exact-string phone routes |
 | `GET /users/conf/ZZZNOTREAL000` | 404 `{"error":"User not found"}` |
 | `GET /users` | 190 records, **none** carrying `confNumber`, `Company` or `email` |
-| `POST /users` with `confNumber`, `Company`, `email` in the body | 201, but all three come back **`null`** -- the fields are ignored |
+| `POST /users` with `confNumber`, `Company`, `email` in the body | 201, but all three come back **`null`** -- the fields are ignored (**changed 2026-10-14**: `Company` and `email` are now stored, `confNumber` still is not; see below) |
 | `PUT /users/:id` and `PUT /users/phone/:phone` with the three fields | 200, all three still **`null`** -- ignored here too |
 | `PUT /users/conf/CLAUDEDOCTEST1` (no record has that number), full body | **404** `{"error":"User not found"}` -- it does not create |
 | `PUT /users/conf/CLAUDEDOCTEST1`, no body | 500 `{"error":"Failed to update user"}` |
@@ -160,12 +161,25 @@ The by-confirmation record looks like this:
 What this adds up to:
 
 - **The API cannot assign a confirmation number.** No write route stores
-  `confNumber`, `Company` or `email`; they are echoed back as `null` whatever
-  the body says. A record gets its number out of band, on the owner's side,
-  so a confirmation number is something to *look up*, never something the
-  booth or the demo can create. "Create User by Confirmation Number" in the
-  collection is a misnomer: the PUT updates a record that already has the
-  number and 404s otherwise.
+  `confNumber`; it is echoed back as `null` whatever the body says. A record
+  gets its number out of band, on the owner's side, so a confirmation number
+  is something to *look up*, never something the booth or the demo can
+  create. "Create User by Confirmation Number" in the collection is a
+  misnomer: the PUT updates a record that already has the number and 404s
+  otherwise.
+- **`POST /users` stores `Company` and `email` since 2026-10-14; nothing else
+  does, and no read returns them.** Measured that day, after the owner said
+  the create had been updated to take both, with a throwaway record (`userId`
+  223, deleted in the same run). The POST answered 201 with
+  `"Company":"Probe Co","email":"probe0077@example.com","confNumber":null`.
+  `PUT /users/:id` with new values for both answered 200 but echoed the
+  *stored* values, so the PUT ignores them, as it still ignores `confNumber`.
+  The list, by-id and by-phone reads still omit all three, and the read by
+  confirmation number 404s because the number was never stored. The two
+  fields come back only in write responses: the POST, the PUT, and the
+  `user` inside the DELETE reply. So a registration's email and company are
+  kept, but nothing we can call reads them back. Until 2026-10-14 the POST
+  dropped them too, as the 2026-10-09 table above records.
 - **Nothing lists them.** The list, by-id and by-phone reads omit the field,
   so there is no way to enumerate which users have a number; the only way to
   resolve one is to ask for it.

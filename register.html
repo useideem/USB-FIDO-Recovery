@@ -81,9 +81,15 @@
           <label class="ft-label" for="new-phone">Phone number</label>
           <input type="tel" id="new-phone" class="ft-input" placeholder="9135551234" autocomplete="tel" inputmode="numeric" required>
         </div>
-        <div class="ft-field">
-          <label class="ft-label" for="new-email">Email</label>
-          <input type="email" id="new-email" class="ft-input" autocomplete="email" spellcheck="false">
+        <div class="en-row">
+          <div class="ft-field">
+            <label class="ft-label" for="new-email">Email</label>
+            <input type="email" id="new-email" class="ft-input" autocomplete="email" spellcheck="false">
+          </div>
+          <div class="ft-field">
+            <label class="ft-label" for="new-company">Company</label>
+            <input type="text" id="new-company" class="ft-input" autocomplete="organization" spellcheck="false">
+          </div>
         </div>
         <button id="new-attendee-btn" type="submit" class="btn btn-primary">Register</button>
       </form>
@@ -97,6 +103,7 @@
         <div class="rg-detail"><dt>Name</dt><dd id="attendee-name">--</dd></div>
         <div class="rg-detail"><dt>Phone</dt><dd id="attendee-phone">--</dd></div>
         <div class="rg-detail"><dt>Email</dt><dd id="attendee-email">--</dd></div>
+        <div class="rg-detail"><dt>Company</dt><dd id="attendee-company">--</dd></div>
         <div class="rg-detail"><dt>Badge ID</dt><dd id="attendee-id" class="rg-mono">--</dd></div>
       </dl>
       <p class="en-warning" id="attendee-note" hidden></p>
