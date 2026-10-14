@@ -7,7 +7,12 @@
  * and polls it. The responder (B) scans the QR, is asked to confirm sharing,
  * verifies with their passkey (the demo's own login), and B's page POSTs B's
  * User ID with the code. Both pages then show the other person's name and
- * phone.
+ * phone. The completed exchange is also written to the user API's exchanges
+ * table (POST /exchanges, added by the owner on 2026-10-14; docs/user-api.md
+ * §3c), one row in each direction, so each attendee gains the other as a
+ * contact there and the pages can list those contacts. The record's
+ * `upstream` field says whether that landed; the exchange itself goes
+ * through either way.
  *
  * The server never sees a ZSM token: the SDK's validate-token call has a
  * window of a few seconds and stays inside umfa.js, exactly as for login. So
@@ -44,6 +49,9 @@ const TTL_SECONDS = Number(process.env.EXCHANGE_TTL_SECONDS) || 600;
 
 /** After completion the record only has to outlive A's next poll. */
 const MIN_TTL_AFTER_COMPLETION = 60;
+
+/** How long one call to the user API may take; a completion makes three. */
+const UPSTREAM_TIMEOUT_MS = 4000;
 
 /** Unambiguous characters, in case a code is ever read out loud. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -179,7 +187,8 @@ async function create(userId) {
     expiresAt: new Date(now + TTL_SECONDS * 1000).toISOString(),
     initiator,
     responder: null,
-    completedAt: null
+    completedAt: null,
+    upstream: null
   };
   // A collision on 40 random bits is not expected; the loop is only so a
   // collision would never silently overwrite someone's open exchange.
@@ -219,6 +228,7 @@ async function complete(code, userId) {
 
   record.responder = await lookupContact(userId);
   record.completedAt = new Date().toISOString();
+  record.upstream = await recordExchange(record.initiator, record.responder);
   await store.set(recordKey(code), JSON.stringify(record), remaining);
   return json(withStore(record));
 }
@@ -233,15 +243,16 @@ async function complete(code, userId) {
  * phone number, a number with no record, or a database that is down all
  * give a contact with found:false, so the exchange still goes through and
  * the pages show the User ID alone. Only the four fields the by-phone read
- * returns are kept; Company and email exist solely on the badge-number
- * route (docs/user-api.md).
+ * returns are kept, plus the record's integer id as `recordId`, which the
+ * exchanges route and the contacts route are keyed by; Company and email
+ * exist solely on the badge-number route (docs/user-api.md).
  */
 async function lookupContact(userId) {
-  const contact = { userId, found: false, firstName: '', lastName: '', phone: '', photo: null };
+  const contact = { userId, recordId: null, found: false, firstName: '', lastName: '', phone: '', photo: null };
   const digits = phoneDigits(userId);
   if (!digits) return contact;
   try {
-    const res = await fetch(`${DB_API}/users/phone/${encodeURIComponent(digits)}`);
+    const res = await dbFetch(`/users/phone/${encodeURIComponent(digits)}`);
     if (res.status === 404) return contact;
     if (!res.ok) throw new Error(`user lookup returned ${res.status}`);
     const body = await res.json();
@@ -249,6 +260,7 @@ async function lookupContact(userId) {
     if (!record) return contact;
     return {
       ...contact,
+      recordId: Number.isInteger(record.userId) ? record.userId : null,
       found: true,
       firstName: String(record.firstName ?? ''),
       lastName: String(record.lastName ?? ''),
@@ -265,6 +277,63 @@ async function lookupContact(userId) {
 function phoneDigits(value) {
   const digits = String(value).replace(/\D/g, '');
   return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
+}
+
+// ---------------------------------------------------------------------------
+// Upstream record
+// ---------------------------------------------------------------------------
+
+/**
+ * Writes the completed exchange to the user API. Its exchanges are
+ * one-directional (POST /exchanges { senderId, receiverId }: the receiver
+ * gains the sender as a contact, the sender gains nothing) and the demo's
+ * exchange is mutual, so two rows go up, one each way. By record id, because
+ * the by-phone form of the route matches the stored string exactly and the
+ * by-badge form needs numbers the API never stores for records we create
+ * (docs/user-api.md §3c). A side with no record, a refused POST, or a
+ * database that does not answer in time all give { saved: false } with a
+ * reason; the exchange itself has already gone through, as it did before the
+ * route existed. The two POSTs run together and `exchangeIds` lists
+ * whichever landed. Nothing retries: the API has no idempotency key and a
+ * repeat is a new row.
+ *
+ * @returns {Promise<{ saved: boolean, exchangeIds: number[], reason: string }>}
+ */
+async function recordExchange(initiator, responder) {
+  const missing = [initiator, responder].filter(c => !c.found || !Number.isInteger(c.recordId));
+  if (missing.length) {
+    return {
+      saved: false,
+      exchangeIds: [],
+      reason: `${missing.map(c => c.userId).join(' and ')} ${missing.length > 1 ? 'have' : 'has'} no record in the user database`
+    };
+  }
+  const directions = [[initiator, responder], [responder, initiator]];
+  const results = await Promise.allSettled(
+    directions.map(([sender, receiver]) => postExchange(sender.recordId, receiver.recordId))
+  );
+  const exchangeIds = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+  const reasons = results.filter(r => r.status === 'rejected').map(r => r.reason?.message || String(r.reason));
+  if (reasons.length) console.warn(`[exchange] upstream record failed: ${reasons.join('; ')}`);
+  return { saved: reasons.length === 0, exchangeIds, reason: reasons.join('; ') };
+}
+
+/** One POST /exchanges: resolves to the new exchangeId, rejects with the API's error text. */
+async function postExchange(senderId, receiverId) {
+  const res = await dbFetch('/exchanges', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ senderId, receiverId })
+  });
+  let body = {};
+  try { body = await res.json(); } catch (_) { /* no JSON body */ }
+  if (!res.ok) throw new Error(body.error || `exchange POST returned ${res.status}`);
+  return body.exchangeId;
+}
+
+/** fetch against the user API with a timeout, so a stalled upstream cannot hold a completion. */
+function dbFetch(path, init = {}) {
+  return fetch(DB_API + path, { ...init, signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
 }
 
 // ---------------------------------------------------------------------------

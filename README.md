@@ -74,7 +74,10 @@ Phase 3: PROTECTED ACTIONS (step-up auth)
   it, is asked to confirm sharing their contact info, verifies with their
   passkey, and both phones then show the other person's name and phone
   number, read from the user database by api/exchange.js. Each side's
-  passkey verification is what authorizes it.
+  passkey verification is what authorizes it. The completed exchange is
+  written to that database too (POST /exchanges, one row each way, so each
+  attendee gains the other as a contact there); the screen says whether
+  that landed and lists the attendee's contacts from it.
 
 Phase 4: ENABLING / DISABLING DEVICE
   User can disable device with click of button. To re-enable device, user must reinsert iShield Key.

@@ -103,6 +103,13 @@
         <div class="contact-phone" id="exchange-phone"></div>
         <div class="contact-id" id="exchange-userid"></div>
       </div>
+      <!-- Whether the exchange reached the user database, then this
+           attendee's contacts from it (renderContacts, once complete) -->
+      <p class="exchange-saved" id="exchange-saved" hidden></p>
+      <div class="exchange-contacts" id="exchange-contacts" hidden>
+        <p class="exchange-contacts-title">Your contacts</p>
+        <ul class="exchange-contact-list" id="exchange-contact-list"></ul>
+      </div>
       <p class="exchange-note" id="exchange-note" hidden></p>
       <button id="exchange-confirm" class="btn btn-primary" hidden>Confirm sharing contact info</button>
       <button id="exchange-done" class="btn btn-primary">Done</button>

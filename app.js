@@ -458,9 +458,13 @@ async function awardPoints(user, actionLabel, points) {
 // shows as a QR. The responder scans it, lands here with ?exchange=<code>,
 // logs in the usual way, and that login is what authorizes sending their
 // User ID against the code. The server fills in both contacts from the user
-// database, the initiator's poll sees it, and both screens show the other
-// person. The ZSM token never leaves umfa.js: its validation window is a few
-// seconds, so the server trusts the User ID and looks the contact up itself.
+// database, writes the exchange to that database's exchanges table (one row
+// each way, so each attendee gains the other as a contact there), the
+// initiator's poll sees it, and both screens show the other person, say
+// whether the row landed, and list this attendee's contacts from the same
+// database. The ZSM token never leaves umfa.js: its validation window is a
+// few seconds, so the server trusts the User ID and looks the contact up
+// itself.
 // ---------------------------------------------------------------------------
 
 /** The matchmaker, relative like DB_BASE: dev-server.mjs and Vercel both mount it here. */
@@ -546,6 +550,7 @@ async function pollExchange() {
     exchange.record = data;
     if (data.responder) {
       renderExchange();
+      void renderContacts(data.initiator);
       return;
     }
   }
@@ -570,6 +575,7 @@ async function completeExchange(user, code) {
   if (!ok) return renderExchange({ error: data.error || 'no response' });
   exchange.record = data;
   renderExchange();
+  void renderContacts(data.responder);
 }
 
 /**
@@ -638,6 +644,7 @@ function endExchange() {
   Object.assign(exchange, { active: false, role: null, code: null, record: null, pollTimer: null, confirmed: false });
   setPendingExchange('');
   document.getElementById('exchange-qr')?.replaceChildren();
+  document.getElementById('exchange-contact-list')?.replaceChildren();
 }
 
 /** Draws the QR with the vendored generator, the same way register.js does. */
@@ -727,6 +734,20 @@ function renderExchange({ expired = false, used = false, error = '' } = {}) {
     else photo.removeAttribute('src');
   }
 
+  // Once both sides are in, say whether the exchange reached the user
+  // database (api/exchange.js writes it there, one row each way). A record
+  // from before that existed has no `upstream` and shows nothing.
+  const saved = $('exchange-saved');
+  const upstream = complete ? record.upstream : null;
+  saved.hidden = !upstream;
+  saved.className = 'exchange-saved ' + (upstream?.saved ? 'success' : 'failure');
+  saved.textContent = !upstream ? ''
+    : upstream.saved ? 'Saved: you are in each other\'s contacts in the conference database.'
+    : `Not saved to the conference database: ${upstream.reason || 'unknown error'}.`;
+  // The contacts list belongs to a completed exchange only; renderContacts
+  // fills and shows it once the list has been read.
+  if (!complete) $('exchange-contacts').hidden = true;
+
   // Off localhost, a Map-backed store means Redis is not wired up yet: the
   // exchange may work on a warm instance and then not, so say so rather
   // than let it look like a bug in the pages.
@@ -743,6 +764,50 @@ function displayName(contact) {
   if (!contact) return '';
   const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
   return name || contact.userId || '';
+}
+
+/**
+ * Lists this attendee's contacts from the user API (GET
+ * /users/id/:recordId/contacts, by the record id the exchange record carries
+ * for each side) under the other person's card. Shown only once a list has
+ * been read and is not empty: a User ID with no record, or a database that
+ * does not answer, leaves the section hidden.
+ */
+async function renderContacts(mine) {
+  const section = document.getElementById('exchange-contacts');
+  const list = document.getElementById('exchange-contact-list');
+  if (!section || !list) return;
+  const contacts = Number.isInteger(mine?.recordId) ? await fetchContacts(mine.recordId) : null;
+  if (!exchange.active) return;   // Done was tapped while the request was in flight
+  list.replaceChildren(...(contacts || []).map(contactRow));
+  section.hidden = !contacts || contacts.length === 0;
+}
+
+/** The contacts the user API holds for a record id, in the order it sends them; null when they cannot be read. */
+async function fetchContacts(recordId) {
+  try {
+    const res = await fetch(`${DB_BASE}/users/id/${encodeURIComponent(recordId)}/contacts?limit=100`, { cache: 'no-store' });
+    if (!res.ok) return null;
+    const body = await res.json();
+    return Array.isArray(body?.contacts) ? body.contacts : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** One row of the contacts list: the name, then phone and company. */
+function contactRow(contact) {
+  const li = document.createElement('li');
+  li.className = 'exchange-contact';
+  const name = document.createElement('span');
+  name.className = 'exchange-contact-name';
+  const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
+  name.textContent = fullName || formatPhone(contact.phone) || 'Unknown';
+  const detail = document.createElement('span');
+  detail.className = 'exchange-contact-detail';
+  detail.textContent = [formatPhone(contact.phone), contact.Company].filter(Boolean).join(' · ');
+  li.append(name, detail);
+  return li;
 }
 
 /** (913) 555-1235 for a ten-digit number; anything else as stored. */

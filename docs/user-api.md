@@ -54,6 +54,9 @@ body and stores nothing (§3b).
 | PUT | `/users/conf/:confNumber` | updates a record that already has that number; **404** otherwise -- an update, not a create, see §3b |
 | DELETE | `/users/conf/:confNumber` | 404 when no record has that number; the success shape was not observed -- see §3b |
 | PATCH | `/users/conf/:confNumber/balance` | `{"message":"Balance updated","user":{…}}`, the same additive `{"amount": …}` body as §3a -- see §3b |
+| POST | `/exchanges` | **201** `{"exchangeId","senderId","receiverId","exchangedAt"}` -- see §3c |
+| GET | `/users/id/:id/contacts`, `/users/phone/:phone/contacts`, `/users/:confNumber/contacts` | `{"limit","offset","contacts":[…]}` -- see §3c |
+| GET | `/users/id/:id/exchanges`, `/users/phone/:phone/exchanges`, `/users/:confNumber/exchanges` | `{"limit","offset","exchanges":[…]}` -- see §3c |
 
 A missing record gives `404 {"error":"User not found"}`. An unknown route
 gives Express's HTML error page, not JSON.
@@ -198,6 +201,71 @@ What this adds up to:
 The owner's test user `KVNLHY66K2P` (`userId` 1) is to be read and, at most,
 balance-adjusted back to where it started -- never replaced, never deleted.
 
+## 3c. Exchanges and contacts
+
+Added by the API's owner on 2026-10-14 for the P2P Contact Exchange and
+delivered as a second Postman collection,
+`docs/IdeemP2P.postman_collection.json` (seven requests, no responses). An
+exchange is a row `{ exchangeId, senderId, receiverId, exchangedAt }`; a
+user's contacts are the senders of the exchanges they received, one entry per
+sender. The user CRUD and balance routes are untouched.
+
+**Measured on 2026-10-14.** Reads against the owner's test user (`userId` 1)
+and `userId` 5; writes between two throwaway records, `userId` 231 and 232
+(phones 9995550001 and 9995550002), which turned out to be undeletable once
+they had exchanges (below) and are still in the database.
+
+| Request | Result |
+|---|---|
+| `POST /exchanges` `{"senderId":231,"receiverId":232}` | **201** `{"exchangeId":7,"senderId":231,"receiverId":232,"exchangedAt":"2026-10-14T21:23:14.777Z"}` |
+| the same again | 201, `exchangeId` 8 -- **duplicates are allowed**, a new row each time |
+| `{"senderId":"231","receiverId":"232"}` (strings) | 400 -- the ids must be JSON integers |
+| `{"senderPhone":"9995550001","receiverPhone":"9995550002"}` | 201, `exchangeId` 9, the same `senderId`/`receiverId` as by id |
+| `{"senderPhone":"999-555-0001",…}` (formatted; the record holds bare digits) | 404 `{"error":"Sender not found"}` -- **exact-string phone matching**, as §3 |
+| `{"senderConfNumber":"THROWAWAYXA","receiverConfNumber":"throwawayxb"}` | 404 `{"error":"Sender not found"}` -- the throwaways' numbers were never stored (§3b), so by badge works only for records the owner numbered |
+| `{"senderId":231,"receiverId":231}` | 400 `{"error":"Self-exchanges are not allowed"}` |
+| `{"senderId":231,"receiverId":999999}` | 404 `{"error":"Receiver not found"}` |
+| `{}`, `{"senderId":231}`, `{"senderId":231,"receiverPhone":"…"}` | 400 `{"error":"Supply one complete pair: senderId/receiverId (JSON integers 1–2147483647), senderConfNumber/receiverConfNumber (1–100 non-whitespace characters), or senderPhone/receiverPhone (phone strings up to 50 characters). Do not mix formats or add fields."}` |
+| `GET /users/id/232/contacts` (the receiver) | 200 `{"limit":50,"offset":0,"contacts":[{"userId":231,"firstName":"Throwaway","lastName":"ExchA","phone":"9995550001","Company":"Probe","email":"a@probe.invalid","lastExchangedAt":"2026-10-14T21:23:15.225Z"}]}` -- **one entry for the sender after three exchanges**, carrying the latest time |
+| `GET /users/id/231/contacts` (the sender) | 200, `"contacts":[]` -- **one-directional**: sending adds nothing to the sender's list |
+| `GET /users/id/231/exchanges` | 200, three rows, newest first, each with `"direction":"sent"` |
+| `GET /users/id/232/exchanges` | 200, the same three rows with `"direction":"received"` |
+| `GET /users/phone/9135551111/contacts`, `/users/phone/9135551111/exchanges` | 200, the by-phone form, exact string as everywhere |
+| `GET /users/KVNLHY66K2P/exchanges`, `/users/kvnlhy66k2p/exchanges` | 200, the by-badge form, **no `conf/` segment** and case-insensitive; `/users/conf/KVNLHY66K2P/contacts` is Express's HTML 404 |
+| `GET /users/1/contacts` | 404 `{"error":"User not found"}` -- a bare number after `/users/` is read as a confirmation number here; the by-id form is `/users/id/1/contacts` |
+| `GET /users/id/5/contacts?limit=1000` | 400 `{"error":"limit must be 1–100; offset must be 0–2147483647"}`; `?limit=2&offset=1` pages as expected, the default is 50 |
+| `GET /users/id/999/contacts`, `/users/NOPE/exchanges` | 404 `{"error":"User not found"}` |
+| `GET /exchanges`, `GET /exchanges/6` | Express's HTML 404 -- no list, no single-row read |
+| `DELETE /users/231`, `DELETE /users/phone/9995550001` | **500** `{"error":"Failed to delete user"}` -- **a user with an exchange row cannot be deleted**, by either route |
+
+What this adds up to:
+
+- **Record it by id.** The by-id form is the only one that cannot miss: the
+  by-phone form matches the stored string exactly (the owner's test user
+  holds `512-555-1234` while every record the booth writes holds bare
+  digits), and the by-badge form needs a number the API never stores for
+  records we create. The demo's `api/exchange.js` reads both records by
+  bare-digit phone and posts `{ senderId, receiverId }` with their
+  `userId`s.
+- **Contacts are one-directional, and the demo's exchange is not.** The
+  receiver gains the sender; the sender gains nothing. Both phones in the
+  demo show the other person, so `api/exchange.js` posts two rows per
+  completed exchange, one each way, and each side's contact list gets the
+  other. Dropping to one row is one line there.
+- **Contacts carry `Company` and `email`**, which no user read other than
+  the by-badge one returns (§3b), and `lastExchangedAt`. Repeats collapse
+  into the one entry; the exchanges list keeps every row.
+- **Exchanges make a user undeletable.** Both DELETE routes answer 500 once a
+  record is a sender or receiver. This is why `userId` 5 (the live
+  registration of 2026-10-12, which the owner has been exchanging with since
+  that day) would not delete, and why the two throwaways from this run are
+  still there: the owner has to remove the rows first. Create throwaway users
+  for exchange tests expecting to leave them behind.
+- **No idempotency and no way back.** A repeated POST is a new row, nothing
+  deletes an exchange, and there is no read of a single one.
+  `api/exchange.js` posts once per completion, inside the claim that
+  already makes a code single-use, and never retries.
+
 ## 4. CORS, and why the proxy exists
 
 The service sends **no `Access-Control-Allow-Origin` header**, on any method.
@@ -252,6 +320,7 @@ ambiguity.
 ```sh
 curl -s https://sbit.authconcepts.com:3033/api/health
 curl -s https://sbit.authconcepts.com:3033/api/users/conf/KVNLHY66K2P   # the owner's test user
+curl -s https://sbit.authconcepts.com:3033/api/users/id/1/contacts     # the test user's contacts (§3c)
 curl -s http://localhost:8080/db/users                  # through the local proxy
 curl -s https://authenticate26.vercel.app/db/users      # through the Vercel proxy
 ```

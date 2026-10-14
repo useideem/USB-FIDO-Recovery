@@ -1,0 +1,201 @@
+{
+  "info": {
+    "_postman_id": "abc56a7f-a084-4d9f-8bfc-8556b80e1323",
+    "name": "IdeemP2P",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "_exporter_id": "1535517",
+    "_collection_link": "https://go.postman.co/collection/1535517-abc56a7f-a084-4d9f-8bfc-8556b80e1323?source=collection_link"
+  },
+  "item": [
+    {
+      "name": "New Exchange by Confirmation Number",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"senderConfNumber\": \"KVNLHY66K2P\",\r\n  \"receiverConfNumber\": \"TZNDC5FXKYH\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://sbit.authconcepts.com:3033/api/exchanges",
+          "protocol": "https",
+          "host": [
+            "sbit",
+            "authconcepts",
+            "com"
+          ],
+          "port": "3033",
+          "path": [
+            "api",
+            "exchanges"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "New Exchange by ID",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"senderId\": 1,\r\n  \"receiverId\": 5\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://sbit.authconcepts.com:3033/api/exchanges",
+          "protocol": "https",
+          "host": [
+            "sbit",
+            "authconcepts",
+            "com"
+          ],
+          "port": "3033",
+          "path": [
+            "api",
+            "exchanges"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "New Exchange by Phone Number",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"senderPhone\": \"512-555-1234\",\r\n  \"receiverPhone\": \"512-555-5678\"\r\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "https://sbit.authconcepts.com:3033/api/exchanges",
+          "protocol": "https",
+          "host": [
+            "sbit",
+            "authconcepts",
+            "com"
+          ],
+          "port": "3033",
+          "path": [
+            "api",
+            "exchanges"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Receiver Contacts",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://sbit.authconcepts.com:3033/api/users/{RECEIVER_CONF_NUMBER}/contacts",
+          "protocol": "https",
+          "host": [
+            "sbit",
+            "authconcepts",
+            "com"
+          ],
+          "port": "3033",
+          "path": [
+            "api",
+            "users",
+            "{RECEIVER_CONF_NUMBER}",
+            "contacts"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Sender Contacts",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://sbit.authconcepts.com:3033/api/users/{SENDER_CONF_NUMBER}/exchanges",
+          "protocol": "https",
+          "host": [
+            "sbit",
+            "authconcepts",
+            "com"
+          ],
+          "port": "3033",
+          "path": [
+            "api",
+            "users",
+            "{SENDER_CONF_NUMBER}",
+            "exchanges"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Receiver Exchanges",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://sbit.authconcepts.com:3033/api/users/RECEIVER_CONF_NUMBER/exchanges",
+          "protocol": "https",
+          "host": [
+            "sbit",
+            "authconcepts",
+            "com"
+          ],
+          "port": "3033",
+          "path": [
+            "api",
+            "users",
+            "RECEIVER_CONF_NUMBER",
+            "exchanges"
+          ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Get Contacts by ID",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "https://sbit.authconcepts.com:3033/api/users/id/2/contacts",
+          "protocol": "https",
+          "host": [
+            "sbit",
+            "authconcepts",
+            "com"
+          ],
+          "port": "3033",
+          "path": [
+            "api",
+            "users",
+            "id",
+            "2",
+            "contacts"
+          ]
+        }
+      },
+      "response": []
+    }
+  ]
+}
