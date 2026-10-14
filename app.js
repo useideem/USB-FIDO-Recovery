@@ -334,10 +334,19 @@ function renderActionPoints(user) {
 }
 
 const pointsFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const wholePointsFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
 
-/** "1,030 pts", "12.5 pts": the balance and every charge on this page, as on the partner page. */
+/** "25 pts", "12.5 pts": every credit on this page, as on the partner page. */
 function formatPoints(n) {
   return `${pointsFormat.format(n)} pts`;
+}
+
+/**
+ * "1,030 pts": the balance, whole points only (the owner's rule, 2026-10-14),
+ * rounded down so the screen never shows a point the record does not hold.
+ */
+function formatBalance(n) {
+  return `${wholePointsFormat.format(Math.floor(n))} pts`;
 }
 
 /** The record for the logged-in user, or null when none is on file. */
@@ -383,7 +392,7 @@ function renderBalance() {
   const line = document.getElementById('balance-display');
   const value = document.getElementById('balance-value');
   if (!line || !value) return;
-  const text = account ? formatPoints(account.balance) : '--';
+  const text = account ? formatBalance(account.balance) : '--';
   if (account && !line.hidden && value.textContent !== '--' && value.textContent !== text) {
     // The number just moved while on screen: a brief bump so it is seen
     value.classList.remove('bump');

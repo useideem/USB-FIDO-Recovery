@@ -767,10 +767,13 @@ Demo-swissbit/
                           create, then a QR into the demo with ?userid=<digits>
   key-enroll.js        -- The discoverable create that puts a phone number on an iShield key, as a
                           function for register.js (the measured options; fido-test.js defaults to them)
-  partner.html/.js     -- Partner booth: a shared password, a strip of partner tiles, then Identify reads
-                          the User ID off an iShield key and the partner's preset and custom point
-                          buttons move the balance through the user API
-  partners/            -- The tile logos (Google, RSA, Swissbit, HID) and the Twemoji ice cream
+  partner.html/.js     -- Partner booth: a shared password, a strip of partner tiles that hides once one
+                          is chosen, then Identify reads the User ID off an iShield key and the sponsor's
+                          preset and custom point buttons move the balance through the user API; the
+                          refreshment booths are self-service, one button that awards +50 and shows the
+                          attendee's name, phone number and a QR code to the demo site
+  partners/            -- The tile logos (RSA, Swissbit, HID; google.png only for the sponsor strips)
+                          and the Twemoji ice cream, popcorn and bubbles (the oxygen bar)
   landing.html/.css    -- Conference landing page: neon sign, Login and Leader Board links, no script;
                           landing.css is the hero alone
   party.css            -- The "Death to Passwords" party theme (background photo, top bar, sponsor

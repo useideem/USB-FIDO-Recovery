@@ -1582,10 +1582,11 @@ body {
   border-bottom: 1px solid var(--color-border);
 }
 
+/* Six tiles in one row inside the 344px the card leaves: 6 x 48 + 5 x 8 */
 .pt-partner-strip {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fit, minmax(48px, 1fr));
+  gap: 8px;
   margin-top: 12px;
 }
 
@@ -1630,6 +1631,81 @@ body {
   border-color: var(--color-accent);
   background: var(--color-accent-bg);
   box-shadow: 0 0 0 3px var(--color-accent-bg);
+}
+
+/* The chosen partner, standing in for the strip once a tile is tapped */
+.pt-chosen {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pt-chosen[hidden] {
+  display: none;
+}
+
+.pt-chosen-icon {
+  width: 48px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.pt-chosen-name {
+  flex: 1;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.pt-chosen a {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+
+/* A self-service booth's card: the attendee's details, the QR code to the
+   demo site, and the line under it */
+.pt-award {
+  margin-top: 20px;
+}
+
+.pt-award[hidden] {
+  display: none;
+}
+
+.pt-qr {
+  width: 200px;
+  max-width: 100%;
+  margin: 16px auto 10px;
+  padding: 8px;
+  background: var(--color-white);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.pt-qr[hidden] {
+  display: none;
+}
+
+.pt-qr svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.pt-award-message {
+  margin: 0 0 4px;
+  text-align: center;
+  font-size: 1.125rem;
+  font-weight: 800;
+  color: #1e40af;
+}
+
+.pt-award-message[hidden] {
+  display: none;
 }
 
 /* The account the key identified, the partner's presets and the custom moves under it */
@@ -1727,8 +1803,10 @@ body {
     padding: 18px 10px;
   }
 
-  /* Five tiles still fit one row at 390px; the names shrink to stay inside them */
+  /* Six tiles go two rows of three at phone width: one row would break
+     the names mid-word */
   .pt-partner-strip {
+    grid-template-columns: repeat(3, 1fr);
     gap: 8px;
   }
 

@@ -56,22 +56,47 @@
     <!-- BOOTH: everything below the gate -->
     <div id="booth" hidden>
 
-      <!-- PARTNER: one tile per entry in PARTNERS (partner.js), drawn by renderStrip -->
-      <section class="pt-partners" aria-labelledby="partners-title">
+      <!-- PARTNER: one tile per entry in PARTNERS (partner.js), drawn by renderStrip,
+           until one is chosen; the chosen partner then stands in for the strip -->
+      <section class="pt-partners" id="partners-section" aria-labelledby="partners-title">
         <h2 class="ft-section-title" id="partners-title">Partner</h2>
         <div class="pt-partner-strip" id="partner-strip" role="radiogroup" aria-label="Partner"></div>
       </section>
+      <div class="pt-chosen" id="partner-chosen" hidden>
+        <img id="chosen-icon" class="pt-chosen-icon" alt="">
+        <span class="pt-chosen-name" id="chosen-name"></span>
+        <a href="#" id="change-partner">Change</a>
+      </div>
 
-      <!-- IDENTIFY: one touch, then the account below -->
-      <section class="pt-step" aria-labelledby="identify-title">
+      <!-- Shown only in desktop Chrome, which cannot read a PIN-less key this way -->
+      <p class="en-warning" id="chrome-warning" hidden>
+        Desktop Chrome refuses to read a PIN-less key without a credential list, so
+        the key cannot be read here. Use a phone, or Safari on a Mac.
+      </p>
+
+      <!-- IDENTIFY (the sponsor booths): one touch, then the account below -->
+      <section class="pt-step" id="identify-section" aria-labelledby="identify-title" hidden>
         <h2 class="ft-section-title" id="identify-title">Identify</h2>
         <p class="ft-hint">Insert the attendee's FIDO key, press <b>Identify</b>, then have them touch the key when the browser asks. Their User ID is read off the key and their account appears below.</p>
-        <!-- Shown only in desktop Chrome, which cannot read a PIN-less key this way -->
-        <p class="en-warning" id="chrome-warning" hidden>
-          Desktop Chrome refuses to read a PIN-less key without a credential list, so
-          Identify will not work here. Use a phone, or Safari on a Mac.
-        </p>
         <button id="identify-btn" type="button" class="btn btn-primary">Identify</button>
+      </section>
+
+      <!-- SELF-SERVICE (Ice Cream, Popcorn, Oxygen): one button credits the
+           partner's points and shows the attendee a QR code to the demo site -->
+      <section class="pt-step" id="self-section" aria-labelledby="self-title" hidden>
+        <h2 class="ft-section-title" id="self-title">Award points</h2>
+        <p class="ft-hint">Insert your FIDO key, press the button, then touch the key when the browser asks.</p>
+        <button id="award-btn" type="button" class="btn btn-primary">Identify and Award Points</button>
+        <div class="pt-award" id="award-result" hidden>
+          <dl class="rg-details">
+            <div class="rg-detail"><dt>First name</dt><dd id="award-first"></dd></div>
+            <div class="rg-detail"><dt>Last name</dt><dd id="award-last"></dd></div>
+            <div class="rg-detail"><dt>Phone number</dt><dd class="rg-mono" id="award-phone"></dd></div>
+          </dl>
+          <p class="en-warning" id="award-note" hidden></p>
+          <div class="pt-qr" id="award-qr" role="img" aria-label="QR code that opens the demo site"></div>
+          <p class="pt-award-message" id="award-message">View the leaderboard on your phone</p>
+        </div>
       </section>
 
       <!-- ACCOUNT: the record behind the number, the partner's presets, and the custom moves -->

@@ -11,6 +11,15 @@
  * with ?partner=<id> so each booth gets its own link. Nothing about the
  * partner is sent anywhere: the user API has no field for it, so the choice
  * only decides which preset buttons appear and how the flash names the move.
+ * Once a tile is tapped the strip hides and the chosen partner's icon and
+ * name stand in for it, with a Change link that brings the strip back.
+ *
+ * The three refreshment booths (selfService in PARTNERS: Ice Cream, Popcorn,
+ * Oxygen) are self-service: one button, Identify and Award Points, runs the
+ * same get and lookup, shows the attendee's first name, last name and phone
+ * number with a QR code of the demo site (LEADERBOARD_QR_URL) and the line
+ * "View the leaderboard on your phone", and credits the partner's single
+ * preset.
  *
  * Identify runs the demo's open get (webauthnIdentify in ishield.js: empty
  * allowCredentials, userVerification discouraged, the security-key hint), so
@@ -18,8 +27,8 @@
  * hands back its user handle: the phone number register.html wrote there, as
  * bare digits. The page looks that number up in the user database and shows
  * the account, in points, with the partner's preset buttons (PARTNERS: +10,
- * +30, +70 for the four sponsors, +50 for Ice Cream) and the two Custom
- * buttons that take whatever is typed in the box:
+ * +30, +70 for the three sponsors, +50 for Ice Cream, Popcorn and Oxygen)
+ * and the two Custom buttons that take whatever is typed in the box:
  *
  *   Add Custom Credit / Cash Out   + Custom   the amount typed in the box
  *   Deduct Custom Credit / Buy In  - Custom   the same amount, negative
@@ -40,8 +49,9 @@
  * key, so the page says so up front, as register.html does for the create.
  *
  * The helpers (checkPassword, findPartner, partnerFromSearch, formatPoints,
- * presetLabel, userIdFromHandle, describeGetError, parseAmount,
- * findUserByPhone, adjustBalance, fullName) are pure or take a fetch, so a
+ * formatBalance, presetLabel, userIdFromHandle, describeGetError, parseAmount,
+ * findUserByPhone, adjustBalance, fullName, formatPhone) are pure or take a
+ * fetch, so a
  * Node harness can cover them; the module's top level only registers a
  * DOMContentLoaded listener.
  */
@@ -65,21 +75,35 @@ export const PARTNER_KEY = 'partner_booth';
  * file is missing shows the name alone.
  */
 export const PARTNERS = [
-  { id: 'google',   name: 'Google',    icon: './partners/google.png',    presets: [10, 30, 70] },
   { id: 'rsa',      name: 'RSA',       icon: './partners/rsa.png',       presets: [10, 30, 70] },
   { id: 'swissbit', name: 'Swissbit',  icon: './partners/swissbit.png',  presets: [10, 30, 70] },
   { id: 'hid',      name: 'HID',       icon: './partners/hid.png',       presets: [10, 30, 70] },
-  { id: 'icecream', name: 'Ice Cream', icon: './partners/ice-cream.svg', presets: [50] }
+  { id: 'icecream', name: 'Ice Cream', icon: './partners/ice-cream.svg', presets: [50], selfService: true },
+  { id: 'popcorn',  name: 'Popcorn',   icon: './partners/popcorn.svg',   presets: [50], selfService: true },
+  { id: 'oxygen',   name: 'Oxygen',    icon: './partners/oxygen.svg',    presets: [50], selfService: true }
 ];
+
+/** What the QR code on a self-service booth opens: the demo site, where View Leaderboard lives. */
+export const LEADERBOARD_QR_URL = 'https://authenticate26.vercel.app';
 
 /** The most a Custom button will send in one press, in points. */
 export const MAX_AMOUNT = 1000000;
 
 const pointsFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 
-/** "1,030 pts", "12.5 pts": the balance and every amount on this page. */
+/** "12.5 pts", "50 pts": every amount on this page. */
 export function formatPoints(n) {
   return `${pointsFormat.format(n)} pts`;
+}
+
+const wholePointsFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 });
+
+/**
+ * "1,030 pts": the balance, whole points only (the owner's rule, 2026-10-14),
+ * rounded down so the screen never shows a point the record does not hold.
+ */
+export function formatBalance(n) {
+  return `${wholePointsFormat.format(Math.floor(n))} pts`;
 }
 
 /** The face of a preset button: "+30", "-50". */
@@ -195,6 +219,13 @@ export function fullName(record) {
   return name || 'name not on record';
 }
 
+/** (913) 555-1235 for a ten-digit number; anything else as given. The rule register.js and app.js apply. */
+export function formatPhone(value) {
+  const text = String(value || '');
+  const digits = userIdFromHandle(text) ?? '';
+  return /^\d{10}$/.test(digits) ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : text;
+}
+
 // ---------------------------------------------------------------------------
 // Page glue
 // ---------------------------------------------------------------------------
@@ -205,7 +236,7 @@ let flashTimer = null;
 /** The identified account: { phone, userId, balance }, or null before a key has answered. */
 let account = null;
 
-/** The chosen partner (one of PARTNERS); set before the booth is shown. */
+/** The chosen partner (one of PARTNERS), or null until a tile is tapped. */
 let partner = null;
 
 /** The preset buttons drawn for `partner`, so a balance move can disable them. */
@@ -263,7 +294,7 @@ function unlock(event) {
   input.value = '';
   store(UNLOCKED_KEY, '1');
   showGate(false);
-  showFlash(`Unlocked. ${partner.name} is selected; tap another tile to change it.`, 'success');
+  showFlash(partner ? `Unlocked. This is the ${partner.name} booth.` : 'Unlocked. Choose the partner.', 'success');
 }
 
 /** Lock: forget the flag, drop whatever account was on screen, back to the form. */
@@ -271,6 +302,7 @@ function lock() {
   store(UNLOCKED_KEY, null);
   account = null;
   $('account-section').hidden = true;
+  $('award-result').hidden = true;
   $('custom-amount').value = '';
   showGate(true);
   $('gate-password').focus();
@@ -303,15 +335,40 @@ function renderStrip() {
   strip.replaceChildren(...tiles);
 }
 
-/** Makes `id` the current partner (the first one when it is unknown), remembers it, redraws the presets. */
+/**
+ * Makes `id` the current partner (none when it is null or unknown),
+ * remembers it, drops whatever attendee was on screen and redraws the booth.
+ */
 function selectPartner(id) {
-  partner = findPartner(id) ?? PARTNERS[0];
-  store(PARTNER_KEY, partner.id);
+  partner = findPartner(id);
+  store(PARTNER_KEY, partner ? partner.id : null);
+  account = null;
+  $('account-section').hidden = true;
+  $('award-result').hidden = true;
   for (const tile of $('partner-strip').children) {
-    const on = tile.dataset.partner === partner.id;
+    const on = !!partner && tile.dataset.partner === partner.id;
     tile.classList.toggle('selected', on);
     tile.setAttribute('aria-checked', String(on));
   }
+  renderBooth();
+}
+
+/**
+ * The booth for the chosen partner. Until one is chosen only the strip
+ * shows. Once chosen the strip hides, the partner's icon and name take its
+ * place with a Change link, and either the sponsor flow (Identify, the
+ * account, presets and custom moves) or the self-service flow (one button)
+ * appears.
+ */
+function renderBooth() {
+  const chosen = !!partner;
+  $('partners-section').hidden = chosen;
+  $('partner-chosen').hidden = !chosen;
+  $('identify-section').hidden = !chosen || !!partner.selfService;
+  $('self-section').hidden = !chosen || !partner.selfService;
+  if (!chosen) return;
+  $('chosen-icon').src = partner.icon;
+  $('chosen-name').textContent = partner.name;
   $('presets-title').textContent = `${partner.name} points`;
   renderPresets();
 }
@@ -336,7 +393,7 @@ function renderPresets() {
 function renderAccount(userId, record) {
   $('account-user').textContent = userId;
   $('account-name').textContent = record ? fullName(record) : '--';
-  $('account-balance').textContent = record ? formatPoints(Number(record.balance)) : '--';
+  $('account-balance').textContent = record ? formatBalance(Number(record.balance)) : '--';
   $('moves').hidden = !record;
   $('account-note').textContent = record ? '' : 'No account has this number. Register it on the registration page first.';
   $('account-note').hidden = !!record;
@@ -386,13 +443,88 @@ async function identify() {
   }
 }
 
+// ---- the self-service booths ----
+
+/** Draws the QR code with the vendored generator, as the demo and registration pages do. */
+async function renderQr(box, url) {
+  try {
+    const { qrcode } = await import('./vendor/qrcode-generator/dist/qrcode.mjs');
+    const qr = qrcode(0, 'M');    // 0: the smallest version the data fits in
+    qr.addData(url);
+    qr.make();
+    box.innerHTML = qr.createSvgTag({ cellSize: 8, margin: 8 * 4, scalable: true });
+  } catch (err) {
+    console.error('[partner] QR failed:', err);
+    box.textContent = url;
+  }
+}
+
+/** The attendee's card on a self-service booth: name and number, then the QR code and its line when there is a record. */
+async function renderAward(userId, record) {
+  $('award-first').textContent = String(record?.firstName || '').trim() || '--';
+  $('award-last').textContent = String(record?.lastName || '').trim() || '--';
+  $('award-phone').textContent = formatPhone(record?.phone || userId);
+  $('award-note').textContent = record ? '' : 'No account has this number. Register it on the registration page first.';
+  $('award-note').hidden = !!record;
+  $('award-qr').hidden = !record;
+  $('award-message').hidden = !record;
+  $('award-result').hidden = false;
+  if (record) await renderQr($('award-qr'), LEADERBOARD_QR_URL);
+}
+
+/**
+ * Identify and Award Points: the same get and lookup as Identify, then the
+ * attendee's card and the partner's single preset credited through adjust,
+ * whose flash reports the new balance. Nothing stops a second press from
+ * crediting again.
+ */
+async function identifyAndAward() {
+  const btn = $('award-btn');
+  account = null;
+  $('award-result').hidden = true;
+  btn.disabled = true;
+  btn.classList.add('loading');
+  showFlash('Insert your FIDO key and touch it when the browser asks...', 'info', 60000);
+  try {
+    const result = await webauthnIdentify();
+    if (!result.success) {
+      showFlash(describeGetError(result.error), 'failure', 12000);
+      return;
+    }
+    const userId = userIdFromHandle(result.authenticatedUser);
+    if (!userId) {
+      showFlash('The key answered, but its credential carries no User ID. Enroll it on the registration page first.', 'failure', 12000);
+      return;
+    }
+
+    showFlash(`Identified ${userId}. Looking the account up...`, 'info', 60000);
+    let record;
+    try {
+      record = await findUserByPhone(userId);
+    } catch (err) {
+      showFlash(`Identified ${userId}, but the user database did not answer (${err.message}).`, 'failure', 12000);
+      return;
+    }
+    await renderAward(userId, record);
+    if (!record) {
+      showFlash(`Identified ${userId}: no account on file`, 'failure', 8000);
+      return;
+    }
+    account = { phone: userId, userId: record.userId, balance: Number(record.balance) };
+    await adjust(partner.name, partner.presets[0]);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
+  }
+}
+
 /** Re-reads the balance after a PATCH whose outcome is unknown. Never retries. */
 async function rereadBalance() {
   try {
     const record = await findUserByPhone(account.phone);
     if (record) {
       account.balance = Number(record.balance);
-      $('account-balance').textContent = formatPoints(account.balance);
+      $('account-balance').textContent = formatBalance(account.balance);
     }
   } catch (err) {
     console.warn('[partner] re-read failed:', err.message);
@@ -409,15 +541,15 @@ async function adjust(label, amount) {
   if (!account || busy) return;
   const magnitude = Math.abs(amount);
   if (amount < 0 && account.balance < magnitude) {
-    showFlash(`${label} declined: ${formatPoints(magnitude)} exceeds the balance of ${formatPoints(account.balance)}.`, 'failure', 8000);
+    showFlash(`${label} declined: ${formatPoints(magnitude)} exceeds the balance of ${formatBalance(account.balance)}.`, 'failure', 8000);
     return;
   }
   setBusy(true);
   showFlash(`${label}: ${amount < 0 ? 'deducting' : 'adding'} ${formatPoints(magnitude)}...`, 'info', 60000);
   try {
     account.balance = await adjustBalance(account.userId, amount);
-    $('account-balance').textContent = formatPoints(account.balance);
-    showFlash(`${label}: ${formatPoints(magnitude)} ${amount < 0 ? 'deducted' : 'added'}. Balance is now ${formatPoints(account.balance)}.`, 'success', 8000);
+    $('account-balance').textContent = formatBalance(account.balance);
+    showFlash(`${label}: ${formatPoints(magnitude)} ${amount < 0 ? 'deducted' : 'added'}. Balance is now ${formatBalance(account.balance)}.`, 'success', 8000);
   } catch (err) {
     // The PATCH may or may not have landed. Re-read rather than retry, so a
     // slow server never applies it twice.
@@ -462,11 +594,15 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   selectPartner(stored(PARTNER_KEY));
   showGate(stored(UNLOCKED_KEY) !== '1');
+  $('change-partner').addEventListener('click', event => { event.preventDefault(); selectPartner(null); });
 
   $('identify-btn').addEventListener('click', () => identify());
+  $('award-btn').addEventListener('click', () => identifyAndAward());
   if (!window.PublicKeyCredential) {
-    $('identify-btn').disabled = true;
-    $('identify-btn').textContent = 'This browser has no WebAuthn support';
+    for (const btn of [$('identify-btn'), $('award-btn')]) {
+      btn.disabled = true;
+      btn.textContent = 'This browser has no WebAuthn support';
+    }
   }
 
   $('add-custom-btn').addEventListener('click', () => {
