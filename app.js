@@ -795,19 +795,103 @@ async function fetchContacts(recordId) {
   }
 }
 
-/** One row of the contacts list: the name, then phone and company. */
+/** The contact's name, or its phone when the record has none. */
+function contactName(contact) {
+  const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
+  return fullName || formatPhone(contact.phone) || 'Unknown';
+}
+
+/** One row of a contact list: the name, then phone, company and email. */
 function contactRow(contact) {
   const li = document.createElement('li');
-  li.className = 'exchange-contact';
+  li.className = 'contact-row';
   const name = document.createElement('span');
-  name.className = 'exchange-contact-name';
-  const fullName = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
-  name.textContent = fullName || formatPhone(contact.phone) || 'Unknown';
+  name.className = 'contact-row-name';
+  name.textContent = contactName(contact);
   const detail = document.createElement('span');
-  detail.className = 'exchange-contact-detail';
-  detail.textContent = [formatPhone(contact.phone), contact.Company].filter(Boolean).join(' · ');
+  detail.className = 'contact-row-detail';
+  detail.textContent = [formatPhone(contact.phone), contact.Company, contact.email].filter(Boolean).join(' · ');
   li.append(name, detail);
   return li;
+}
+
+// ---------------------------------------------------------------------------
+// Contacts — View Contacts on the ACTIONS screen (2026-10-14). The attendees
+// this user has exchanged contacts with, read from the user API by the
+// record id the login loaded (GET /users/id/:recordId/contacts, the same
+// list the exchange screen draws), on their own screen with an "Email me
+// the list" link: a mailto: with the subject and body filled in, which a
+// phone opens in its mail app. No step-up: it is this attendee's own list
+// on a logged-in device.
+// ---------------------------------------------------------------------------
+const contacts = { active: false, list: null };
+const CONTACTS_EMAIL_SUBJECT = 'My Authenticate 2026 contacts';
+
+/** What the CONTACTS screen says in each state; 'loaded' draws the count instead. */
+const CONTACTS_MESSAGES = {
+  loading: 'Reading your contacts…',
+  norecord: 'This User ID has no record in the user database, so there is no contact list to show.',
+  failed: 'Could not read your contacts. Check the connection and tap View Contacts again.',
+  empty: 'No contacts yet. Tap P2P Contact Exchange and have another attendee scan your code.'
+};
+
+/** The View Contacts tap: the screen comes up at once, the list follows. */
+async function openContacts(user) {
+  contacts.active = true;
+  contacts.list = null;
+  showScreen('CONTACTS');
+  renderContactsScreen('loading');
+  if (!account) await refreshAccount(user);   // a lookup that failed at login gets another go
+  if (!contacts.active) return;
+  if (!account) return renderContactsScreen('norecord');
+  const list = await fetchContacts(account.userId);
+  if (!contacts.active) return;   // Back was tapped while the request was in flight
+  contacts.list = list;
+  renderContactsScreen(list === null ? 'failed' : list.length ? 'loaded' : 'empty');
+}
+
+/** Back, or Log Out: forgets the list and leaves the screen to updateUI. */
+function closeContacts() {
+  contacts.active = false;
+  contacts.list = null;
+  document.getElementById('contacts-list')?.replaceChildren();
+}
+
+function renderContactsScreen(state) {
+  const status = document.getElementById('contacts-status');
+  const list = document.getElementById('contacts-list');
+  const email = document.getElementById('contacts-email');
+  if (!status || !list || !email) return;
+  const rows = contacts.list || [];
+  status.textContent = state === 'loaded'
+    ? `${rows.length} contact${rows.length === 1 ? '' : 's'} from P2P Contact Exchange`
+    : CONTACTS_MESSAGES[state];
+  status.className = 'contacts-status' + (state === 'failed' || state === 'norecord' ? ' failure' : '');
+  list.replaceChildren(...rows.map(contactRow));
+  list.hidden = rows.length === 0;
+  email.hidden = rows.length === 0;
+  email.href = rows.length ? contactsMailto(rows) : '#';
+}
+
+/**
+ * A mailto: link carrying the list, so a tap opens the phone's mail app
+ * with the subject and body filled in. No recipient: no read we can make
+ * returns this attendee's own email (docs/user-api.md §3b), so the address
+ * is theirs to type. One contact per block, a blank line between, CRLF
+ * line breaks as RFC 6068 asks.
+ */
+function contactsMailto(list) {
+  const lines = [`Contacts from P2P Contact Exchange at Authenticate 2026 (${list.length}):`, ''];
+  for (const contact of list) {
+    lines.push(contactName(contact));
+    if (contact.phone) lines.push(`Phone: ${formatPhone(contact.phone)}`);
+    if (contact.Company) lines.push(`Company: ${contact.Company}`);
+    if (contact.email) lines.push(`Email: ${contact.email}`);
+    lines.push('');
+  }
+  lines.push(`Sent from the Authenticate 2026 demo, ${location.origin}`);
+  const subject = `${CONTACTS_EMAIL_SUBJECT} (${list.length})`;
+  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(lines.join('\r\n'))}`;
 }
 
 /** (913) 555-1235 for a ten-digit number; anything else as stored. */
@@ -1008,7 +1092,8 @@ const SCREEN_ANNOUNCEMENTS = {
   'LOGIN': 'Login screen. Enter your user ID and tap Enter Game.',
   'SNA': 'Phone number verification screen. Tap Verify my number.',
   'ACTIONS': 'Actions screen. You are logged in.',
-  'EXCHANGE': 'P2P Contact Exchange screen.'
+  'EXCHANGE': 'P2P Contact Exchange screen.',
+  'CONTACTS': 'Your contacts screen.'
 };
 
 function showScreen(screenId) {
@@ -1023,10 +1108,10 @@ function showScreen(screenId) {
   }
 
   // The User ID can always be changed before logging in. It is read-only
-  // once logged in (ACTIONS, or EXCHANGE after the responder has verified)
+  // once logged in (ACTIONS, CONTACTS, or EXCHANGE after the responder has verified)
   // and on SNA (the number being verified is the one on screen). A
   // responder who has only scanned so far can still correct it.
-  const loggedInScreen = screenId === 'ACTIONS' || (screenId === 'EXCHANGE' && !!STATE.loginID);
+  const loggedInScreen = screenId === 'ACTIONS' || screenId === 'CONTACTS' || (screenId === 'EXCHANGE' && !!STATE.loginID);
   document.getElementById('username').readOnly = loggedInScreen || screenId === 'SNA';
 
   // Announce screen change to screen readers
@@ -1115,6 +1200,8 @@ async function updateUI() {
         .catch(err => console.error('[exchange] completion failed:', err));
     } else if (exchange.active) {
       showScreen('EXCHANGE');
+    } else if (contacts.active) {
+      showScreen('CONTACTS');
     } else {
       showScreen('ACTIONS');
     }
@@ -1357,6 +1444,7 @@ async function handleProtectedAction(actionKey) {
 async function logOut() {
   endExchange();
   clearSession();
+  closeContacts();
   resetClient();
   STATE.reset();
   account = null;
@@ -1482,6 +1570,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Log Out
   document.getElementById('logout-btn').addEventListener('click', () => logOut());
+
+  // View Contacts and its Back: the list screen, no step-up
+  document.getElementById('view-contacts-btn').addEventListener('click', () => openContacts(STATE.loginID));
+  document.getElementById('contacts-back').addEventListener('click', async () => {
+    closeContacts();
+    await updateUI();
+  });
 
   // Confirm on the exchange screen: the responder's passkey verification
   document.getElementById('exchange-confirm').addEventListener('click', () => confirmExchange());

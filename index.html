@@ -65,8 +65,9 @@
     </div>
 
     <!-- ACTIONS screen — logged in. The balance is the hero: the points the
-         booths credit and Authenticate adds to. View Leaderboard is a plain
-         link to the owner's dashboard (every user in the same database, by
+         booths credit and Authenticate adds to. View Contacts opens the
+         CONTACTS screen below, no step-up. View Leaderboard is a plain link
+         to the owner's dashboard (every user in the same database, by
          balance), opened in a new tab so the game session here survives. -->
     <div class="screen" id="ACTIONS">
       <div id="default-actions">
@@ -77,7 +78,8 @@
         <div class="action-grid">
           <button class="btn btn-action" data-action="authenticate">Authenticate<span class="btn-points"></span></button>
           <button class="btn btn-action" data-action="p2p-contact-exchange">P2P Contact Exchange</button>
-          <a class="btn btn-action btn-action-wide" href="https://sbit.authconcepts.com:3099/dashboard.html" target="_blank" rel="noopener">View Leaderboard</a>
+          <button class="btn btn-action" id="view-contacts-btn" type="button">View Contacts</button>
+          <a class="btn btn-action" href="https://sbit.authconcepts.com:3099/dashboard.html" target="_blank" rel="noopener">View Leaderboard</a>
         </div>
 
         <div id="action-status" class="flash" role="status" aria-live="polite"></div>
@@ -108,11 +110,23 @@
       <p class="exchange-saved" id="exchange-saved" hidden></p>
       <div class="exchange-contacts" id="exchange-contacts" hidden>
         <p class="exchange-contacts-title">Your contacts</p>
-        <ul class="exchange-contact-list" id="exchange-contact-list"></ul>
+        <ul class="contact-list" id="exchange-contact-list"></ul>
       </div>
       <p class="exchange-note" id="exchange-note" hidden></p>
       <button id="exchange-confirm" class="btn btn-primary" hidden>Confirm sharing contact info</button>
       <button id="exchange-done" class="btn btn-primary">Done</button>
+    </div>
+
+    <!-- CONTACTS screen — the attendees this user has exchanged contacts
+         with (P2P Contact Exchange), read from the user database, and an
+         "Email me the list" link that hands them to the phone's mail app
+         through mailto: (openContacts / contactsMailto in app.js). -->
+    <div class="screen" id="CONTACTS">
+      <p class="exchange-title">Your contacts</p>
+      <p id="contacts-status" class="contacts-status"></p>
+      <ul class="contact-list" id="contacts-list" hidden></ul>
+      <a id="contacts-email" class="btn btn-primary" href="#" hidden>Email me the list</a>
+      <button id="contacts-back" class="btn btn-secondary" type="button">Back</button>
     </div>
 
     <!-- SNA screen — simulated Silent Network Authentication, run once per

@@ -70,7 +70,10 @@ Phase 3: PROTECTED ACTIONS (step-up auth)
   record in the user database (PATCH /users/:id/balance via the /db
   proxy) and the balance on screen updates; after that the button shows 0
   and a press only steps up. View Leaderboard is a plain link to the
-  conference dashboard. P2P Contact Exchange opens a QR code instead. Another attendee scans
+  conference dashboard. View Contacts lists the attendees this user has
+  exchanged contacts with, read from the user database, with an Email me
+  the list button that opens the phone's mail app (a mailto: link with the
+  list in the body). P2P Contact Exchange opens a QR code instead. Another attendee scans
   it, is asked to confirm sharing their contact info, verifies with their
   passkey, and both phones then show the other person's name and phone
   number, read from the user database by api/exchange.js. Each side's
