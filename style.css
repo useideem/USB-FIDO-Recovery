@@ -954,12 +954,14 @@ body {
   line-height: 1.7;
 }
 
+/* The call to action under the steps: a headline, not a second button */
 .popup-note {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: var(--color-text-secondary);
-  line-height: 1.5;
-  margin-bottom: 16px;
+  font-size: 1.25rem;
+  font-weight: 800;
+  color: #1e40af;
+  text-align: center;
+  line-height: 1.3;
+  margin: 8px 0 18px;
 }
 
 .popup-lead[hidden],

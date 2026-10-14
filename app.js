@@ -19,6 +19,7 @@
  *                       USB Key, Phone# Verified, Device Bound, Passkey
  *   2. Actions       -- the balance in points, then a step-up authenticate()
  *                       per protected action; Authenticate adds 25 points
+ *                       the first time, then shows 0
  *   2b. P2P Exchange -- after the step-up, a QR code another attendee scans;
  *                       they confirm, verify with their passkey, and both
  *                       phones then show the other's contact (api/exchange.js)
@@ -178,17 +179,27 @@ const ONBOARDING_GUIDE = {
   steps: [
     'Verify your FIDO USB Key',
     'Create a mobile device Passkey',
-    'Cryptographically bind device with ZSM',
+    'Cryptographically bind device',
     'Verify phone number with carrier API'
   ],
   note: 'Start with the USB FIDO Key',
   button: 'Start'
 };
 
-/** The handoff once the key has answered: the passkey is next. */
+/**
+ * The handoff once the key has answered: the key is verified, the passkey
+ * is next. On a device bound without a passkey (no key touch) the same
+ * dialog appears without the first line.
+ */
 const PASSKEY_GUIDE = {
   title: "Now let's get your mobile device Passkey enrolled",
   button: 'Continue'
+};
+
+const KEY_VERIFIED_GUIDE = {
+  ...PASSKEY_GUIDE,
+  title: 'Your USB FIDO Key is now verified!',
+  lead: PASSKEY_GUIDE.title
 };
 
 let guideResolve = null;
@@ -271,16 +282,56 @@ const DB_BASE = './db';
 
 /**
  * What each action earns, in points, the way a partner booth credits them
- * (since 2026-10-14; until then Authenticate charged this amount). The
- * Authenticate button shows its entry. Actions missing from this table step
- * up and stop; they touch no balance. P2P Contact Exchange branches to its
- * own screen before this table is consulted, so its entry is unused until it
- * is decided whether an exchange should earn anything.
+ * (since 2026-10-14; until then Authenticate charged this amount), the
+ * first time only: once the credit has landed, a marker in localStorage
+ * (AWARDED_PREFIX below) turns the entry to 0 for that User ID on this
+ * device, the button says so, and later presses step up and stop. Actions
+ * missing from this table step up and stop too; they touch no balance. P2P
+ * Contact Exchange branches to its own screen before this table is
+ * consulted, so its entry is unused until it is decided whether an exchange
+ * should earn anything.
  */
 const ACTION_POINTS = {
   'authenticate': 25,
   'p2p-contact-exchange': 100
 };
+
+/**
+ * localStorage marker that this device has credited an action's points for a
+ * User ID: AWARDED_PREFIX + action + ':' + user. Per device, like every other
+ * marker here: Reset Device clears it, and the user API has no field for it,
+ * so a second phone would earn the points again.
+ */
+const AWARDED_PREFIX = 'points_awarded:';
+
+function hasAwarded(user, actionKey) {
+  return localStorage.getItem(`${AWARDED_PREFIX}${actionKey}:${user}`) === 'true';
+}
+
+function setAwarded(user, actionKey) {
+  localStorage.setItem(`${AWARDED_PREFIX}${actionKey}:${user}`, 'true');
+}
+
+/**
+ * What an action earns for this user now: its table entry the first time,
+ * 0 once the points have been credited, undefined for an action that never
+ * earns any.
+ */
+function pointsFor(user, actionKey) {
+  const points = ACTION_POINTS[actionKey];
+  if (points === undefined) return undefined;
+  return hasAwarded(user, actionKey) ? 0 : points;
+}
+
+/** Puts what each action earns for this user on its button: "+25 pts", then "0 pts". */
+function renderActionPoints(user) {
+  document.querySelectorAll('button.btn-action[data-action]').forEach((btn) => {
+    const badge = btn.querySelector('.btn-points');
+    if (!badge) return;
+    const points = user ? pointsFor(user, btn.dataset.action) : undefined;
+    badge.textContent = points === undefined ? '' : points > 0 ? `+${formatPoints(points)}` : formatPoints(0);
+  });
+}
 
 const pointsFormat = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 
@@ -368,7 +419,8 @@ async function adjustBalance(userId, amount) {
  * step-up has been authorized. The balance is re-read first so the number
  * on screen is what the server holds now, not what this page last saw.
  *
- * @returns {Promise<{state: string, message: string}>} What to flash.
+ * @returns {Promise<{state: string, message: string, awarded?: boolean}>} What
+ *   to flash, with `awarded` set once the server has taken the credit.
  */
 async function awardPoints(user, actionLabel, points) {
   await refreshAccount(user);
@@ -378,7 +430,7 @@ async function awardPoints(user, actionLabel, points) {
   try {
     account.balance = await adjustBalance(account.userId, points);
     renderBalance();
-    return { state: 'success', message: `${actionLabel} Authorized: ${formatPoints(points)} added` };
+    return { state: 'success', message: `${actionLabel} Authorized: ${formatPoints(points)} added`, awarded: true };
   } catch (err) {
     // The credit may or may not have landed. Re-read rather than retry, so a
     // slow server never credits twice.
@@ -973,6 +1025,9 @@ async function updateUI() {
   loginBtn.disabled = !user;
   loginBtn.textContent = suspended ? 'Reactivate & Enter Game' : 'Enter Game';
 
+  // What each action earns for this user, on its button
+  renderActionPoints(STATE.loginID || user);
+
   // Determine which screen to show
   if (STATE.loginID) {
     const pendingCode = getPendingExchange();
@@ -1143,9 +1198,10 @@ async function login(btn = document.getElementById('login-btn')) {
     user = confirmed;
     showFlash('flash-status', 'USB key verified', 'success');
 
-    // An unbound device: hand over to the passkey, then bind (ZSM + Passkeys+)
+    // An unbound device: say the key is verified, hand over to the passkey,
+    // then bind (ZSM + Passkeys+)
     if (!hasLocalZSM) {
-      if (await showGuide(PASSKEY_GUIDE) !== 'ok') return;
+      if (await showGuide(KEY_VERIFIED_GUIDE) !== 'ok') return;
       await bindDevice(user);
       return;
     }
@@ -1198,14 +1254,23 @@ async function handleProtectedAction(actionKey) {
   }
 
   // The step-up is what the action protects; an action that earns points
-  // then credits the user database. The other actions are done at this point.
-  const points = ACTION_POINTS[actionKey];
+  // then credits the user database, the first time. The other actions, and
+  // a repeat, are done at this point.
+  const points = pointsFor(STATE.loginID, actionKey);
   if (points === undefined) {
     showFlash('action-status', `${actionLabel} Authorized`, 'success', 2000);
     return;
   }
+  if (points === 0) {
+    showFlash('action-status', `${actionLabel} Authorized (points already earned)`, 'success', 3000);
+    return;
+  }
   showFlash('action-status', `${actionLabel} Authorized, adding ${formatPoints(points)}...`, 'success', 10000);
   const outcome = await awardPoints(STATE.loginID, actionLabel, points);
+  if (outcome.awarded) {
+    setAwarded(STATE.loginID, actionKey);
+    renderActionPoints(STATE.loginID);
+  }
   showFlash('action-status', outcome.message, outcome.state, 4000);
 }
 
@@ -1262,11 +1327,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('login-btn').addEventListener('click', () => login());
 
   // Protected action buttons (View Leaderboard is a plain link, not one of
-  // these). The points an action earns go on its button, from one table.
+  // these). What each earns is drawn on it by updateUI (renderActionPoints).
   document.querySelectorAll('button.btn-action[data-action]').forEach((btn) => {
-    const badge = btn.querySelector('.btn-points');
-    const points = ACTION_POINTS[btn.dataset.action];
-    if (badge && points !== undefined) badge.textContent = `+${formatPoints(points)}`;
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
       btn.classList.add('loading');
