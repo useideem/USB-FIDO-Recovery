@@ -1376,13 +1376,21 @@ async function logOut() {
 // ---------------------------------------------------------------------------
 // purgeStorage
 // ---------------------------------------------------------------------------
+// Reset Device leaves this behind for the next page load, so it comes back
+// with New on and the User ID editable, whatever the page's URL and the
+// browser's form-state restoration would make of the toggle.
+const JUST_RESET_KEY = 'justReset';
+
 function purgeStorage() {
   const username = getUsername();
   localStorage.clear();
   sessionStorage.clear();
   if (username) localStorage.setItem('username', username);
   try { indexedDB.deleteDatabase('ideem'); } catch (_) { /* ignore */ }
-  window.location.reload();
+  // Come back as a new user, on the bare page: a ?userid= from the
+  // registration QR would otherwise switch New off again on the reload.
+  sessionStorage.setItem(JUST_RESET_KEY, '1');
+  window.location.replace(window.location.pathname);
 }
 
 // ---------------------------------------------------------------------------
@@ -1490,6 +1498,13 @@ document.addEventListener('DOMContentLoaded', () => {
     // Passkeys+ passkey too and the Passkey indicator after the number check
     // lights.
     document.getElementById('new-user-toggle').checked = urlParams.get('new') === '1';
+  }
+
+  // Straight back from Reset Device: a new user, so the User ID can be
+  // changed. The marker is consumed here, so a later reload is ordinary.
+  if (sessionStorage.getItem(JUST_RESET_KEY)) {
+    sessionStorage.removeItem(JUST_RESET_KEY);
+    document.getElementById('new-user-toggle').checked = true;
   }
 
   // ?exchange= is what another attendee's P2P QR carries. The code goes to
