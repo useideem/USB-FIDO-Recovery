@@ -13,8 +13,8 @@
  * partner is sent anywhere: the user API has no field for it, so the choice
  * only decides which preset buttons appear and how the flash names the move.
  * Once a tile is tapped the strip hides and the chosen partner's icon, drawn
- * large, and name stand in for it; there is no way back on the page, so a
- * booth device is re-pointed with ?partner=<id>.
+ * large, and name stand in for it; a faint X in that header's corner clears
+ * the choice and brings the strip back.
  *
  * The three refreshment booths (selfService in PARTNERS: Ice Cream, Popcorn,
  * Oxygen) are self-service: one button, Identify and Award Points, runs the
@@ -364,8 +364,9 @@ function selectPartner(id) {
 /**
  * The booth for the chosen partner. Until one is chosen only the strip
  * shows. Once chosen the strip hides, the partner's icon and name take its
- * place, and either the sponsor flow (Identify, the account, presets and
- * custom moves) or the self-service flow (one button) appears.
+ * place (with the X that undoes the choice), and either the sponsor flow
+ * (Identify, the account, presets and custom moves) or the self-service
+ * flow (one button) appears.
  */
 function renderBooth() {
   const chosen = !!partner;
@@ -614,6 +615,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   selectPartner(stored(PARTNER_KEY));
   showGate(stored(UNLOCKED_KEY) !== '1');
+  $('change-partner').addEventListener('click', () => selectPartner(null));
 
   $('identify-btn').addEventListener('click', () => identify());
   $('award-btn').addEventListener('click', () => identifyAndAward());

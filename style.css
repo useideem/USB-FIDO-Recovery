@@ -1636,6 +1636,7 @@ body {
 /* The chosen partner, standing in for the strip once a tile is tapped:
    the icon large and centred, the name under it */
 .pt-chosen {
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1660,6 +1661,36 @@ body {
   font-size: 1.5rem;
   font-weight: 800;
   color: var(--color-text);
+}
+
+/* The way back to the strip: a faint X in the corner, plain until hovered */
+.pt-chosen-close {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(15, 43, 70, 0.12);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 1.5rem;
+  line-height: 1;
+  opacity: 0.4;
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.pt-chosen-close:hover {
+  opacity: 0.85;
+}
+
+.pt-chosen-close:focus-visible {
+  opacity: 0.85;
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
 }
 
 /* A self-service booth's card: the attendee's details, the QR code to the
