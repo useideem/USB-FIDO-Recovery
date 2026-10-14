@@ -17,7 +17,8 @@
  *                       passkey, enroll() with Passkeys+, then the simulated
  *                       SNA number check (sna.js) and its four indicators:
  *                       USB Key, Phone# Verified, Device Bound, Passkey
- *   2. Actions       -- step-up authenticate() per protected action
+ *   2. Actions       -- the balance in points, then a step-up authenticate()
+ *                       per protected action; Authenticate adds 25 points
  *   2b. P2P Exchange -- after the step-up, a QR code another attendee scans;
  *                       they confirm, verify with their passkey, and both
  *                       phones then show the other's contact (api/exchange.js)
@@ -52,7 +53,6 @@ import {
 import {
   verifyNumber,
   isNumberVerified,
-  getNumberVerification,
   setNumberVerified,
   SNA_STEPS,
   SNA_SCENARIOS
@@ -241,59 +241,6 @@ function hideGuide(action) {
 }
 
 // ---------------------------------------------------------------------------
-// Challenge display helpers (UI-only -- not called from ishield.js or umfa.js)
-// ---------------------------------------------------------------------------
-
-function updateChallengeDisplay(challenge, signedChallenge) {
-  const PREVIEW_LEN = 15;
-  const isReset = challenge === '--';
-  const container = document.getElementById('passkeys-challenge-display');
-  const prev = document.getElementById('challenge-preview');
-  const full = document.getElementById('challenge-full');
-  const sPrev = document.getElementById('signed-challenge-preview');
-  const sFull = document.getElementById('signed-challenge-full');
-  if (prev && full) {
-    prev.textContent = challenge.substring(0, PREVIEW_LEN) + (challenge.length > PREVIEW_LEN ? '...' : '');
-    full.textContent = challenge;
-  }
-  if (sPrev && sFull) {
-    sPrev.textContent = signedChallenge.substring(0, PREVIEW_LEN) + (signedChallenge.length > PREVIEW_LEN ? '...' : '');
-    sFull.textContent = signedChallenge;
-  }
-  if (container) container.hidden = isReset;
-  document.getElementById('challenge-details')?.removeAttribute('open');
-  document.getElementById('signed-challenge-details')?.removeAttribute('open');
-}
-
-function updateIShieldChallengeDisplay(challenge, signedChallenge) {
-  const PREVIEW_LEN = 15;
-  const container = document.getElementById('ishield-challenge-display');
-  const prev = document.getElementById('ishield-challenge-preview');
-  const full = document.getElementById('ishield-challenge-full');
-  const sPrev = document.getElementById('ishield-signed-challenge-preview');
-  const sFull = document.getElementById('ishield-signed-challenge-full');
-  if (prev && full) {
-    prev.textContent = challenge.substring(0, PREVIEW_LEN) + (challenge.length > PREVIEW_LEN ? '...' : '');
-    full.textContent = challenge;
-  }
-  if (sPrev && sFull) {
-    sPrev.textContent = signedChallenge.substring(0, PREVIEW_LEN) + (signedChallenge.length > PREVIEW_LEN ? '...' : '');
-    sFull.textContent = signedChallenge;
-  }
-  if (container) container.hidden = false;
-  document.getElementById('ishield-challenge-details')?.removeAttribute('open');
-  document.getElementById('ishield-signed-challenge-details')?.removeAttribute('open');
-}
-
-function updateAuthIcons({ ishield = false, zsm = false, passkeys = false } = {}) {
-  document.getElementById('icon-ishield').hidden = !ishield;
-  document.getElementById('icon-zsm').hidden = !zsm;
-  document.getElementById('icon-passkeys').hidden = !passkeys;
-  const ishieldDisplay = document.getElementById('ishield-challenge-display');
-  if (ishieldDisplay) ishieldDisplay.hidden = !ishield;
-}
-
-// ---------------------------------------------------------------------------
 // State
 // ---------------------------------------------------------------------------
 const STATE = new State({
@@ -305,9 +252,7 @@ const STATE = new State({
 // ---------------------------------------------------------------------------
 const PROTECTED_ACTION_LABELS = {
   'authenticate': 'Authenticate',
-  'p2p-contact-exchange': 'P2P Contact Exchange',
-  'view-point-standings': 'View Point Standings',
-  'add-beneficiary': 'Add Beneficiary'
+  'p2p-contact-exchange': 'P2P Contact Exchange'
 };
 
 // ---------------------------------------------------------------------------
@@ -316,8 +261,8 @@ const PROTECTED_ACTION_LABELS = {
 // The Ideem user API (docs/user-api.md) holds one record per attendee, keyed
 // by the bare-digit phone number that is also the credential on the key. Its
 // balance is points, the same number the partner booths credit. The actions
-// with a cost debit that record through its balance endpoint once the step-up
-// has succeeded. The other actions only step up.
+// that earn points credit that record through its balance endpoint once the
+// step-up has succeeded. The other actions only step up.
 //
 // The API is reached through the site's own /db proxy (dev-server.mjs
 // locally, api/db.js on Vercel) because it sends no CORS headers.
@@ -325,13 +270,14 @@ const PROTECTED_ACTION_LABELS = {
 const DB_BASE = './db';
 
 /**
- * What each action costs, in points. The registration form never asks for an
- * amount, so the demo charges a fixed one per action. Actions missing from
- * this table step up and stop; they touch no balance. P2P Contact Exchange
- * branches to its own screen before this table is consulted, so its entry is
- * unused until it is decided whether an exchange should cost anything.
+ * What each action earns, in points, the way a partner booth credits them
+ * (since 2026-10-14; until then Authenticate charged this amount). The
+ * Authenticate button shows its entry. Actions missing from this table step
+ * up and stop; they touch no balance. P2P Contact Exchange branches to its
+ * own screen before this table is consulted, so its entry is unused until it
+ * is decided whether an exchange should earn anything.
  */
-const ACTION_AMOUNTS = {
+const ACTION_POINTS = {
   'authenticate': 25,
   'p2p-contact-exchange': 100
 };
@@ -386,8 +332,15 @@ function renderBalance() {
   const line = document.getElementById('balance-display');
   const value = document.getElementById('balance-value');
   if (!line || !value) return;
+  const text = account ? formatPoints(account.balance) : '--';
+  if (account && !line.hidden && value.textContent !== '--' && value.textContent !== text) {
+    // The number just moved while on screen: a brief bump so it is seen
+    value.classList.remove('bump');
+    void value.offsetWidth;   // restarts the animation
+    value.classList.add('bump');
+  }
   line.hidden = !account;
-  value.textContent = account ? formatPoints(account.balance) : '--';
+  value.textContent = text;
 }
 
 /**
@@ -411,33 +364,27 @@ async function adjustBalance(userId, amount) {
 }
 
 /**
- * Charges an action's points to the logged-in user's account after the step-up
- * has been authorized. The balance is re-read first so the overdraft check
- * is against what the server holds now, not what this page last saw.
+ * Credits an action's points to the logged-in user's account after the
+ * step-up has been authorized. The balance is re-read first so the number
+ * on screen is what the server holds now, not what this page last saw.
  *
  * @returns {Promise<{state: string, message: string}>} What to flash.
  */
-async function settleAction(user, actionLabel, amount) {
+async function awardPoints(user, actionLabel, points) {
   await refreshAccount(user);
   if (!account) {
-    return { state: 'success', message: `${actionLabel} Authorized (no account on file)` };
-  }
-  if (account.balance < amount) {
-    return {
-      state: 'failure',
-      message: `${actionLabel} Declined: ${formatPoints(amount)} exceeds balance of ${formatPoints(account.balance)}`
-    };
+    return { state: 'success', message: `${actionLabel} Authorized (no account on file for the points)` };
   }
   try {
-    account.balance = await adjustBalance(account.userId, -amount);
+    account.balance = await adjustBalance(account.userId, points);
     renderBalance();
-    return { state: 'success', message: `${actionLabel} Authorized: ${formatPoints(amount)} charged` };
+    return { state: 'success', message: `${actionLabel} Authorized: ${formatPoints(points)} added` };
   } catch (err) {
-    // The charge may or may not have landed. Re-read rather than retry, so a
-    // slow server never charges twice.
-    console.error('[account] charge failed:', err.message);
+    // The credit may or may not have landed. Re-read rather than retry, so a
+    // slow server never credits twice.
+    console.error('[account] credit failed:', err.message);
     await refreshAccount(user);
-    return { state: 'failure', message: `${actionLabel} Authorized, but the charge did not go through` };
+    return { state: 'failure', message: `${actionLabel} Authorized, but the points did not go through` };
   }
 }
 
@@ -616,10 +563,6 @@ async function confirmExchange() {
       showFlash('flash-status', 'Passkey verification failed', 'failure', 4000);
       return;
     }
-    if (authResult.challengeData) {
-      updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
-    }
-    updateAuthIcons({ zsm: true, passkeys: true });
     await completeExchange(STATE.loginID, exchange.code);
   } finally {
     btn.classList.remove('loading');
@@ -779,8 +722,7 @@ const SNA_INDICATORS = [
 
 let snaResolve = null;     // settles the ensureNumberVerified() promise
 let snaAbort = null;       // cancels a check in progress
-let snaStepRows = [];      // { row, detail } per SNA_STEPS entry, for the step list
-let snaShownCheckId = null;
+let snaStepRows = [];      // one row per SNA_STEPS entry, for the step list
 
 /** Presenter-only: the ?sna= scenario, consumed by the one run that reads it. */
 function takeSnaScenario() {
@@ -793,7 +735,8 @@ function takeSnaScenario() {
  * The gate every login path passes before STATE.loginID is set. Resolves
  * true at once when this device already verified the user's number;
  * otherwise puts the SNA screen up and resolves true after a successful
- * check and Continue, false on Cancel.
+ * check and Continue. Nothing resolves it false since the Cancel button went
+ * (2026-10-14); the callers still handle false, through finishSna(false).
  */
 function ensureNumberVerified(user) {
   if (isNumberVerified(user)) return Promise.resolve(true);
@@ -855,10 +798,13 @@ async function renderSna({ user, phase, message = '' }) {
 
   $('sna-number').textContent = formatPhone(user);
   $('sna-title').textContent = verified ? 'Number verified' : 'Verify phone number with telco carrier';
-  $('sna-subtitle').textContent =
+  // Nothing under the title before the check (the owner dropped that
+  // sentence on 2026-10-14); a line while it runs and once it is done.
+  const subtitle =
     verified ? 'Your mobile number was verified silently over your network.' :
-    phase === 'running' ? 'This takes a few seconds and needs nothing from you.' :
-    'Cryptographically guarantee this phone number is operating on this device.';
+    phase === 'running' ? 'This takes a few seconds and needs nothing from you.' : '';
+  $('sna-subtitle').textContent = subtitle;
+  $('sna-subtitle').hidden = !subtitle;
 
   if (phase === 'ready' || phase === 'running') buildSnaSteps();
   $('sna-steps').hidden = phase === 'ready';
@@ -871,7 +817,6 @@ async function renderSna({ user, phase, message = '' }) {
   verify.hidden = !(phase === 'ready' || failed);
   verify.textContent = failed ? 'Try again' : 'Verify my number';
   $('sna-continue').hidden = !verified;
-  $('sna-cancel').hidden = verified;
 
   $('sna-indicators').hidden = !verified;
   if (verified) {
@@ -880,7 +825,11 @@ async function renderSna({ user, phase, message = '' }) {
   }
 }
 
-/** One pending row per SNA_STEPS entry. */
+/**
+ * One pending row per SNA_STEPS entry: the mark and the label. The API-call
+ * line each step used to carry underneath (its `detail` in sna.js) is not
+ * drawn since 2026-10-14; the owner wanted the screen clean.
+ */
 function buildSnaSteps() {
   snaStepRows = SNA_STEPS.map((step) => {
     const row = document.createElement('li');
@@ -890,22 +839,16 @@ function buildSnaSteps() {
     const label = document.createElement('span');
     label.className = 'sna-step-label';
     label.textContent = step.label;
-    const detail = document.createElement('span');
-    detail.className = 'sna-step-detail';
-    detail.textContent = step.detail;
-    label.appendChild(detail);
     row.append(mark, label);
-    return { row, detail };
+    return row;
   });
-  document.getElementById('sna-steps').replaceChildren(...snaStepRows.map((entry) => entry.row));
+  document.getElementById('sna-steps').replaceChildren(...snaStepRows);
 }
 
 /** verifyNumber's onStep: colours the row as the step starts and ends. */
 function renderSnaStep(index, step, status) {
-  const entry = snaStepRows[index];
-  if (!entry) return;
-  entry.row.className = `sna-step ${status}`;
-  if (status === 'failed' && step.failDetail) entry.detail.textContent = step.failDetail;
+  const row = snaStepRows[index];
+  if (row) row.className = `sna-step ${status}`;
 }
 
 /** What the four indicators read for this user on this device. */
@@ -929,32 +872,6 @@ function renderSnaIndicators(states) {
     document.getElementById(`sna-ind-${id}`).className = 'sna-indicator ' + (lit ? 'on' : 'off');
     document.getElementById(`sna-ind-${id}-state`).textContent = lit ? on : off;
   }
-}
-
-/**
- * The Silent Network Auth block on ACTIONS: the check this device verified
- * the number with, or hidden when there is none. Left alone while the same
- * check is already up, so updateUI does not fold the details every time.
- */
-function updateSnaDisplay(record) {
-  const PREVIEW_LEN = 15;
-  const container = document.getElementById('sna-challenge-display');
-  if (!container) return;
-  const checkId = record?.checkId || '';
-  if (checkId === (snaShownCheckId || '')) {
-    container.hidden = !checkId;
-    return;
-  }
-  snaShownCheckId = checkId || null;
-  const code = record?.code || '';
-  const preview = (value) => value.substring(0, PREVIEW_LEN) + (value.length > PREVIEW_LEN ? '...' : '');
-  document.getElementById('sna-check-preview').textContent = checkId ? preview(checkId) : '--';
-  document.getElementById('sna-check-full').textContent = checkId;
-  document.getElementById('sna-code-preview').textContent = code ? preview(code) : '--';
-  document.getElementById('sna-code-full').textContent = code;
-  container.hidden = !checkId;
-  document.getElementById('sna-check-details')?.removeAttribute('open');
-  document.getElementById('sna-code-details')?.removeAttribute('open');
 }
 
 // ---------------------------------------------------------------------------
@@ -1056,9 +973,6 @@ async function updateUI() {
   loginBtn.disabled = !user;
   loginBtn.textContent = suspended ? 'Reactivate & Enter Game' : 'Enter Game';
 
-  // The Silent Network Auth block on ACTIONS follows the stored check
-  updateSnaDisplay(STATE.loginID ? getNumberVerification(STATE.loginID) : null);
-
   // Determine which screen to show
   if (STATE.loginID) {
     const pendingCode = getPendingExchange();
@@ -1115,7 +1029,6 @@ async function bindDevice(user) {
   }
 
   STATE.loginID = user;
-  updateAuthIcons({ ishield: true, zsm: true, passkeys: true });
   showFlash('flash-status', 'Device bound successfully', 'success');
   await updateUI();
   return true;
@@ -1177,7 +1090,6 @@ async function login(btn = document.getElementById('login-btn')) {
           return;
         }
         STATE.loginID = user;
-        updateAuthIcons({ zsm: true, passkeys: true });
         showFlash('flash-status', 'Passkeys+ enrolled successfully', 'success');
         await updateUI();
         return;
@@ -1188,10 +1100,6 @@ async function login(btn = document.getElementById('login-btn')) {
         showFlash('flash-status', 'Login failed', 'failure');
         return;
       }
-      if (authResult.challengeData) {
-        updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
-      }
-
       // A device bound before the number check existed gets it here; one
       // that has it answers at once.
       if (!(await ensureNumberVerified(user))) {
@@ -1200,7 +1108,6 @@ async function login(btn = document.getElementById('login-btn')) {
       }
 
       STATE.loginID = user;
-      updateAuthIcons({ zsm: true, passkeys: true });
       await updateUI();
       return;
     }
@@ -1225,10 +1132,6 @@ async function login(btn = document.getElementById('login-btn')) {
         'failure', 6000);
       return;
     }
-    if (ishieldResult.clientDataHash) {
-      updateIShieldChallengeDisplay(ishieldResult.clientDataHash, ishieldResult.signatureHex);
-    }
-
     // Step 4: the User ID on screen has to be the credential the key holds.
     // A different identity stops here; a different spelling of the same
     // number is adopted, so what is on screen is literally what is on the key.
@@ -1255,12 +1158,8 @@ async function login(btn = document.getElementById('login-btn')) {
       showFlash('flash-status', 'Reactivation failed', 'failure');
       return;
     }
-    if (reactivateResult.challengeData) {
-      updateChallengeDisplay(reactivateResult.challengeData.challenge, reactivateResult.challengeData.signedChallenge);
-    }
     setSuspended(user, false);
     STATE.loginID = user;
-    updateAuthIcons({ ishield: true, zsm: true, passkeys: true });
     await updateUI();
     showFlash('flash-status', 'Device reactivated', 'success');
   } catch (err) {
@@ -1291,11 +1190,6 @@ async function handleProtectedAction(actionKey) {
     return;
   }
 
-  if (authResult.challengeData) {
-    updateChallengeDisplay(authResult.challengeData.challenge, authResult.challengeData.signedChallenge);
-  }
-  updateAuthIcons({ zsm: true, passkeys: true });
-
   // P2P Contact Exchange has its own screen: the step-up above is what
   // authorizes issuing a code, and the exchange takes it from there.
   if (actionKey === 'p2p-contact-exchange') {
@@ -1303,15 +1197,15 @@ async function handleProtectedAction(actionKey) {
     return;
   }
 
-  // The step-up is what the action protects; an action with a cost then
-  // settles against the user database. The other actions are done at this point.
-  const amount = ACTION_AMOUNTS[actionKey];
-  if (amount === undefined) {
+  // The step-up is what the action protects; an action that earns points
+  // then credits the user database. The other actions are done at this point.
+  const points = ACTION_POINTS[actionKey];
+  if (points === undefined) {
     showFlash('action-status', `${actionLabel} Authorized`, 'success', 2000);
     return;
   }
-  showFlash('action-status', `${actionLabel} Authorized, charging ${formatPoints(amount)}...`, 'success', 10000);
-  const outcome = await settleAction(STATE.loginID, actionLabel, amount);
+  showFlash('action-status', `${actionLabel} Authorized, adding ${formatPoints(points)}...`, 'success', 10000);
+  const outcome = await awardPoints(STATE.loginID, actionLabel, points);
   showFlash('action-status', outcome.message, outcome.state, 4000);
 }
 
@@ -1325,8 +1219,6 @@ async function logOut() {
   account = null;
   accountFor = null;
   renderBalance();
-  updateChallengeDisplay('--', '--');
-  updateAuthIcons();
   await updateUI();
 }
 
@@ -1369,8 +1261,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Enter Game
   document.getElementById('login-btn').addEventListener('click', () => login());
 
-  // Protected action buttons
-  document.querySelectorAll('.btn-action').forEach((btn) => {
+  // Protected action buttons (View Leaderboard is a plain link, not one of
+  // these). The points an action earns go on its button, from one table.
+  document.querySelectorAll('button.btn-action[data-action]').forEach((btn) => {
+    const badge = btn.querySelector('.btn-points');
+    const points = ACTION_POINTS[btn.dataset.action];
+    if (badge && points !== undefined) badge.textContent = `+${formatPoints(points)}`;
     btn.addEventListener('click', async (e) => {
       e.preventDefault();
       btn.classList.add('loading');
@@ -1392,11 +1288,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // Confirm on the exchange screen: the responder's passkey verification
   document.getElementById('exchange-confirm').addEventListener('click', () => confirmExchange());
 
-  // The SNA screen: Verify plays the simulated check, Continue and Cancel
-  // settle the gate the login path is waiting on
+  // The SNA screen: Verify plays the simulated check and Continue settles
+  // the gate the login path is waiting on. There is no Cancel (removed
+  // 2026-10-14): the way to a different User ID is Log Out afterwards, or
+  // Reset Device.
   document.getElementById('sna-verify').addEventListener('click', () => runSnaCheck());
   document.getElementById('sna-continue').addEventListener('click', () => finishSna(true));
-  document.getElementById('sna-cancel').addEventListener('click', () => finishSna(false));
 
   // Done / Cancel on the exchange screen: back to the actions when logged
   // in, otherwise to the login screen
@@ -1470,7 +1367,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('username').addEventListener('click', (e) => {
     if (!e.target.readOnly) return;
     showFlash('flash-status',
-      STATE.loginID ? 'Log Out to change the User ID' : 'Cancel the number check to change the User ID',
+      STATE.loginID ? 'Log Out to change the User ID' : 'Finish the number check first',
       'failure', 3000);
   });
 
@@ -1483,34 +1380,6 @@ document.addEventListener('DOMContentLoaded', () => {
 
     if (usernameTimer) clearTimeout(usernameTimer);
     usernameTimer = setTimeout(() => updateUI(), 800);
-  });
-
-  // Copy button handlers
-  document.querySelectorAll('.btn-copy').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const summary = btn.closest('summary');
-      const details = summary?.closest('details');
-      const pre = details?.querySelector('.challenge-full');
-      const text = pre?.textContent;
-      if (text) {
-        try {
-          await navigator.clipboard.writeText(text);
-          const originalHTML = btn.innerHTML;
-          btn.textContent = '✓';
-          btn.style.opacity = '1';
-          btn.style.color = 'var(--color-terminal-value)';
-          setTimeout(() => {
-            btn.innerHTML = originalHTML;
-            btn.style.opacity = '';
-            btn.style.color = '';
-          }, 1500);
-        } catch (err) {
-          console.error('Copy failed:', err);
-        }
-      }
-    });
   });
 
   // Detect existing credentials and show correct screen

@@ -188,15 +188,6 @@ body {
   box-shadow: 0 0 0 3px var(--color-accent-bg);
 }
 
-/* ===== Auth Method Icons ===== */
-
-.auth-icon {
-  height: 18px;
-  object-fit: contain;
-  opacity: 0.8;
-  transition: opacity 0.2s;
-}
-
 /* ===== Screens ===== */
 
 .screen {
@@ -316,171 +307,51 @@ body {
   box-shadow: none;
 }
 
-/* ===== Challenge Display (Terminal Style) ===== */
+/* ===== Balance and Action Grid ===== */
 
-.challenge-display {
-  margin-top: 24px;
+/* The balance is the first thing a logged-in attendee sees: the label
+   small, the points large, tabular so a change does not reflow. */
+.balance-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  margin: 4px 0 20px;
+  padding: 16px 12px;
   background: var(--color-bg);
-  border-radius: var(--radius-md);
-  padding: 16px;
   border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 
-.challenge-display[hidden] {
+.balance-card[hidden] {
   display: none;
 }
 
-.challenge-display:not([hidden]) {
-  animation: fadeIn 0.3s ease-out;
-}
-
-.challenge-section-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 8px;
-}
-
-.challenge-section-label {
+.balance-label {
   font-size: 0.75rem;
   font-weight: 700;
-  color: var(--color-primary);
-  letter-spacing: 0.02em;
-  font-family: var(--font-mono);
-}
-
-.challenge-display details {
-  margin-bottom: 6px;
-}
-
-.challenge-display details[open] .challenge-full {
-  animation: slideDown 0.2s ease-out;
-}
-
-.challenge-display summary {
-  font-size: 0.75rem;
-  font-weight: 500;
   color: var(--color-text-secondary);
-  cursor: pointer;
-  list-style: none;
-  padding: 6px 0;
-  font-family: var(--font-mono);
-  transition: color 0.2s;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
-.challenge-display summary:hover {
-  color: var(--color-text);
-}
-
-.challenge-display summary::-webkit-details-marker { display: none; }
-.challenge-display summary::marker { display: none; content: ''; }
-
-.challenge-display summary:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-  border-radius: var(--radius-xs);
-}
-
-.challenge-display summary::before {
-  content: "\25B6";
-  display: inline-block;
-  margin-right: 8px;
-  font-size: 0.55rem;
-  transition: transform 0.2s;
-  vertical-align: middle;
-  color: var(--color-primary-muted);
-}
-
-.challenge-display details[open] > summary::before {
-  transform: rotate(90deg);
-}
-
-.challenge-value {
-  font-weight: 400;
-  color: var(--color-accent);
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-}
-
-.challenge-full {
-  font-size: 0.6875rem;
-  font-family: var(--font-mono);
-  color: var(--color-text);
-  background: var(--color-white);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  margin-top: 6px;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 120px;
-  overflow-y: auto;
-}
-
-/* Custom scrollbar for terminal sections (webkit) */
-.challenge-full::-webkit-scrollbar {
-  width: 6px;
-}
-.challenge-full::-webkit-scrollbar-track {
-  background: transparent;
-}
-.challenge-full::-webkit-scrollbar-thumb {
-  background: var(--color-border-strong);
-  border-radius: 3px;
-}
-
-/* Auth icons inside challenge sections */
-.challenge-display .auth-icon {
-  opacity: 0.7;
-}
-
-/* Copy button for challenge values */
-.btn-copy {
-  background: transparent;
-  border: none;
-  padding: 4px;
-  margin-left: 8px;
-  cursor: pointer;
-  color: var(--color-primary-muted);
-  opacity: 0;
-  transition: opacity 0.2s, color 0.2s;
-  vertical-align: middle;
-  display: inline-flex;
-  align-items: center;
-}
-
-.challenge-display summary:hover .btn-copy {
-  opacity: 0.6;
-}
-
-.btn-copy:hover {
-  opacity: 1 !important;
-  color: var(--color-accent);
-}
-
-.btn-copy:focus-visible {
-  opacity: 1;
-  outline: 2px solid var(--color-accent);
-  outline-offset: 2px;
-  border-radius: var(--radius-xs);
-}
-
-.btn-copy:active {
-  transform: scale(0.9);
-}
-
-/* ===== Action Grid ===== */
-
-.balance-line {
-  text-align: center;
-  font-size: 0.8125rem;
-  color: var(--color-text-secondary);
-  margin-bottom: 12px;
-}
-
-.balance-line b {
-  color: var(--color-text);
+.balance-value {
+  font-size: 2.5rem;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #1e40af;
   font-variant-numeric: tabular-nums;
+}
+
+/* A brief bump when the number moves, so the credit is seen */
+.balance-value.bump {
+  animation: balance-bump 0.5s ease-out;
+}
+
+@keyframes balance-bump {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.12); }
+  100% { transform: scale(1); }
 }
 
 .action-grid {
@@ -491,6 +362,8 @@ body {
 }
 
 .btn-action {
+  flex-direction: column;
+  gap: 4px;
   background: var(--color-white);
   color: #1e40af;
   border: 1.5px solid #1e40af;
@@ -499,8 +372,26 @@ body {
   font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
+  text-decoration: none;
   transition: all 0.2s ease;
   box-shadow: 0 1px 2px rgba(15, 43, 70, 0.04);
+}
+
+/* The link across the whole row under the two buttons */
+.btn-action-wide {
+  grid-column: 1 / -1;
+}
+
+/* What an action earns, under its label; empty on the ones that earn nothing */
+.btn-points {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-success);
+  letter-spacing: 0.02em;
+}
+
+.btn-points:empty {
+  display: none;
 }
 
 .btn-action:hover {
@@ -509,6 +400,10 @@ body {
   border-color: #1e40af;
   box-shadow: var(--shadow-sm);
   transform: translateY(-1px);
+}
+
+.btn-action:hover .btn-points {
+  color: var(--color-white);
 }
 
 .btn-action:active {
@@ -764,25 +659,6 @@ body {
   background: var(--color-white);
 }
 
-.sna-step-detail {
-  display: block;
-  margin-top: 2px;
-  font-family: var(--font-mono);
-  font-size: 0.6875rem;
-  font-weight: 400;
-  color: var(--color-text-tertiary);
-  word-break: break-word;
-}
-
-.sna-step.active .sna-step-detail,
-.sna-step.done .sna-step-detail {
-  color: var(--color-text-secondary);
-}
-
-.sna-step.failed .sna-step-detail {
-  color: var(--color-danger);
-}
-
 /* The four indicators the check ends on, one row each, fading in in turn. */
 .sna-indicators {
   list-style: none;
@@ -859,14 +735,6 @@ body {
   text-align: center;
   font-size: 0.6875rem;
   color: var(--color-text-tertiary);
-}
-
-/* The signal glyph on the Silent Network Auth block of ACTIONS. */
-.sna-icon {
-  width: 18px;
-  height: 18px;
-  color: var(--color-primary-muted);
-  opacity: 0.8;
 }
 
 /* Action-status: always reserves space, no layout shift */
@@ -1193,11 +1061,6 @@ body {
   .btn-action {
     padding: 14px 8px;
     font-size: 0.75rem;
-  }
-
-  .challenge-display {
-    padding: 12px;
-    margin-top: 20px;
   }
 
   .status-pills {

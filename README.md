@@ -60,14 +60,14 @@ Phase 2: LOGIN
   challenge. No hardware token needed for daily login.
 
 Phase 3: PROTECTED ACTIONS (step-up auth)
-  After login, sensitive operations (authenticating, exchanging contacts,
-  viewing standings) trigger a step-up authentication -- the same
-  authenticate() call used for login, but scoped to a specific action.
-  Authenticate then charges a fixed demo amount to the attendee's record
-  in the user database (PATCH /users/:id/balance via the /db proxy) and
-  the balance shown on the Actions screen updates; the page refuses the
-  charge itself when the balance is short, because the API does not.
-  P2P Contact Exchange opens a QR code instead. Another attendee scans
+  After login, the Actions screen shows the attendee's points balance
+  large, and the two actions (Authenticate, P2P Contact Exchange) trigger
+  a step-up authentication -- the same authenticate() call used for login,
+  but scoped to a specific action. Authenticate then adds a fixed number
+  of points (25, shown on the button) to the attendee's record in the user
+  database (PATCH /users/:id/balance via the /db proxy) and the balance
+  on screen updates. View Leaderboard is a plain link to the conference
+  dashboard. P2P Contact Exchange opens a QR code instead. Another attendee scans
   it, is asked to confirm sharing their contact info, verifies with their
   passkey, and both phones then show the other person's name and phone
   number, read from the user database by api/exchange.js. Each side's
