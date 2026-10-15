@@ -29,7 +29,7 @@
   </section>
 
   <main>
-    <!-- Hero: the neon sign and the two links -->
+    <!-- Hero: the neon sign, the Login link and the Leader Board button -->
     <section class="hero">
       <div class="container">
         <div class="welcome">
@@ -38,20 +38,43 @@
           <p class="intro">Your FIDO key is your ticket. Step inside.</p>
           <nav class="links" aria-label="Site navigation">
             <a class="party-btn" href="./index.html">Login <span aria-hidden="true">→</span></a>
-            <a class="party-btn party-btn-alt" href="https://sbit.authconcepts.com:3099/dashboard.html">Leader Board</a>
+            <!-- Switched off until the party (2026-10-14): a tap shows the note below
+                 instead of opening the owner's dashboard. To turn it back on, make this an
+                 <a class="party-btn party-btn-alt" href="https://sbit.authconcepts.com:3099/dashboard.html">
+                 again and drop the note and the script at the end of the page. -->
+            <button class="party-btn party-btn-alt party-btn-off" id="leaderboard-btn" type="button" aria-disabled="true" aria-describedby="leaderboard-note">Leader Board</button>
           </nav>
+          <p class="links-note" id="leaderboard-note" role="status" hidden>The Leader Board will be turned on as the big party arrives.</p>
         </div>
       </div>
     </section>
 
-    <!-- The games: how to play goes here once the text arrives -->
+    <!-- The games: how to play, in three steps (the owner's text, 2026-10-14) -->
     <section class="container games" id="games">
       <div class="panel">
         <h2>The Games</h2>
-        <p>How to play, and what your points are good for, is coming soon.</p>
+        <p class="panel-lead">Your USB FIDO Key is your ticket to the games. Three steps and you are in.</p>
+        <ol class="steps">
+          <li><strong>Pick up your key.</strong> Stop by the Registration Table in the expo hall and collect your USB FIDO Key. It is yours to take home.</li>
+          <li><strong>Get your phone ready.</strong> Enroll your device with the USB Key: cryptographic device binding, your mobile number validated directly with your carrier through Silent Network Authentication (SNA), and a mobile Passkey.</li>
+          <li><strong>Come play.</strong> Bring your USB Key to the closing party, Death to Passwords. Use it to play our sponsors' games, earn points and pick up treats.</li>
+        </ol>
+        <p class="panel-note">Your points land on the Leader Board, which lights up when the party does.</p>
       </div>
     </section>
   </main>
+
+  <script>
+    // The Leader Board is off until the party: a tap shows the note under the
+    // buttons, replaying its fade-in each time, and goes nowhere.
+    const leaderboardNote = document.getElementById('leaderboard-note');
+    document.getElementById('leaderboard-btn').addEventListener('click', () => {
+      leaderboardNote.hidden = false;
+      leaderboardNote.classList.remove('shown');
+      void leaderboardNote.offsetWidth;
+      leaderboardNote.classList.add('shown');
+    });
+  </script>
 
 </body>
 </html>

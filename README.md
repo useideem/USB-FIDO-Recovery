@@ -782,7 +782,8 @@ Demo-swissbit/
                           and shows the attendee's name, phone number and a QR code to the demo site
   partners/            -- The tile logos (RSA, Swissbit, HID; google.png only for the sponsor strips)
                           and the Twemoji ice cream, popcorn and bubbles (the oxygen bar)
-  landing.html/.css    -- Conference landing page: neon sign, Login and Leader Board links, no script;
+  landing.html/.css    -- Conference landing page: neon sign, a Login link, and a Leader Board button
+                          switched off until the party (a tap shows a note; the page's only script);
                           landing.css is the hero alone
   party.css            -- The "Death to Passwords" party theme (background photo, top bar, sponsor
                           strip, translucent card), scoped to body.party; landing.html and index.html
