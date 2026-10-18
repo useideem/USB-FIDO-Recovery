@@ -68,8 +68,9 @@ Phase 3: PROTECTED ACTIONS (step-up auth)
   but scoped to a specific action. The first time, Authenticate then adds
   a fixed number of points (25, shown on the button) to the attendee's
   record in the user database (PATCH /users/:id/balance via the /db
-  proxy) and the balance on screen updates; after that the button shows 0
-  and a press only steps up. View Leaderboard is a plain link to the
+  proxy, with partner "IDEEM" in the body, which the API requires) and
+  the balance on screen updates; after that the button shows 0 and a
+  press only steps up. View Leaderboard is a plain link to the
   conference dashboard. View Contacts lists the attendees this user has
   exchanged contacts with, read from the user database, with an Email me
   the list button that opens the phone's mail app (a mailto: link with the
@@ -777,8 +778,9 @@ Demo-swissbit/
                           function for register.js (the measured options; fido-test.js defaults to them)
   partner.html/.js     -- Partner booth: a shared password, a strip of partner tiles that hides once one
                           is chosen, then Identify reads the User ID off an iShield key and the sponsor's
-                          preset and custom point buttons move the balance through the user API; the
-                          refreshment booths are self-service, one button that awards +50 once per key
+                          preset and custom point buttons move the balance through the user API, each
+                          move tagged with the booth's name as its partner; the refreshment booths are
+                          self-service, one button that awards +50 once per key
                           and shows the attendee's name, phone number and a QR code to the demo site
   partners/            -- The tile logos (RSA, Swissbit, HID; google.png only for the sponsor strips)
                           and the Twemoji ice cream, popcorn and bubbles (the oxygen bar)

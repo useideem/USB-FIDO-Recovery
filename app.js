@@ -298,6 +298,14 @@ const ACTION_POINTS = {
 };
 
 /**
+ * The partner the user API records every credit from this page against. A
+ * balance PATCH has required a non-blank `partner` string since 2026-10-16
+ * (docs/user-api.md section 3a); the booths send their own names from
+ * PARTNERS in partner.js, and this page, Ideem's, sends the owner's example.
+ */
+const CREDIT_PARTNER = 'IDEEM';
+
+/**
  * localStorage marker that this device has credited an action's points for a
  * User ID: AWARDED_PREFIX + action + ':' + user. Per device, like every other
  * marker here: Reset Device clears it, and the user API has no field for it,
@@ -405,19 +413,21 @@ function renderBalance() {
 }
 
 /**
- * Moves the balance by `amount` through PATCH /users/:id/balance. The API
- * ADDS the amount it is sent (a charge is a negative number), rounds to two
- * decimals, and will take the balance below zero without complaint, so the
- * overdraft check lives in the caller, not here. It is also not idempotent:
- * a timed-out request may have applied, so the caller must never retry.
+ * Moves the balance by `amount` through PATCH /users/:id/balance, recorded
+ * against `partner` (a non-blank string the API has required since
+ * 2026-10-16; a body without one is a 400). The API ADDS the amount it is
+ * sent (a charge is a negative number), rounds to two decimals, and will
+ * take the balance below zero without complaint, so the overdraft check
+ * lives in the caller, not here. It is also not idempotent: a timed-out
+ * request may have applied, so the caller must never retry.
  *
  * @returns {Promise<number>} The balance the server now holds.
  */
-async function adjustBalance(userId, amount) {
+async function adjustBalance(userId, amount, partner) {
   const res = await fetch(`${DB_BASE}/users/${encodeURIComponent(userId)}/balance`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount })
+    body: JSON.stringify({ amount, partner })
   });
   if (!res.ok) throw new Error(`balance update returned ${res.status}`);
   const body = await res.json();
@@ -438,7 +448,7 @@ async function awardPoints(user, actionLabel, points) {
     return { state: 'success', message: `${actionLabel} Authorized (no account on file for the points)` };
   }
   try {
-    account.balance = await adjustBalance(account.userId, points);
+    account.balance = await adjustBalance(account.userId, points, CREDIT_PARTNER);
     renderBalance();
     return { state: 'success', message: `${actionLabel} Authorized: ${formatPoints(points)} added`, awarded: true };
   } catch (err) {

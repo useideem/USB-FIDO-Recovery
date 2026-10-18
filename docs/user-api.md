@@ -49,7 +49,7 @@ body and stores nothing (§3b).
 | GET | `/users/phone/:phone` | an **array**, one element per match |
 | PUT | `/users/:id`, `/users/phone/:phone` | 200 and the updated record |
 | DELETE | `/users/:id`, `/users/phone/:phone` | `{"message":"User deleted","user":{…}}` |
-| PATCH | `/users/:id/balance`, `/users/phone/:phone/balance` | `{"message":"Balance updated","user":{…}}` -- see §3a |
+| PATCH | `/users/:id/balance`, `/users/phone/:phone/balance` | `{"message":"Balance updated","user":{…}}`; the body needs `partner` as well as `amount` since 2026-10-16 -- see §3a |
 | GET | `/users/conf/:confNumber` | a single **object**, with `confNumber`, `Company` and `email` added -- see §3b |
 | PUT | `/users/conf/:confNumber` | updates a record that already has that number; **404** otherwise -- an update, not a create, see §3b |
 | DELETE | `/users/conf/:confNumber` | 404 when no record has that number; the success shape was not observed -- see §3b |
@@ -116,6 +116,32 @@ The by-phone form is subject to the same exact-string match as every other
 phone route, and with duplicate phone numbers possible (§3) it is not clear
 which record a by-phone PATCH adjusts. Prefer the by-id form once the user has
 been looked up.
+
+**The `partner` attribute (measured 2026-10-16).** The owner added a
+`partner` string to the body of every balance PATCH, naming who credits or
+debits: `{"amount": 100, "partner": "IDEEM"}` is the owner's example.
+Measured against a throwaway record (`userId` 240, created at 0):
+
+| Sent | Result |
+|---|---|
+| `{"amount":100,"partner":"IDEEM"}` by id | 200, balance 100 -- the reply is the usual `{"message","user"}`, with no `partner` in it |
+| `"partner":"Swissbit"`, `"ICE CREAM"`, `"zzz-probe-unknown"` | 200 each -- free text: any case, spaces, and names the owner never heard of |
+| `"partner":""`, `123`, `null`, or no `partner` at all | **400** `{"error":"partner must be a nonblank string of at most 100 characters"}` |
+| `{"amount":-5,"partner":"RSA"}` by phone | 200, balance 115 -> 110 -- debits take it too |
+| `PATCH /users/conf/THROWAWAYPT/balance` with a partner | 404 -- the throwaway has no number (§3b); the by-badge form was not measured with a partner |
+| `GET /users/240`, `GET /users/phone/9995550003` | the usual seven fields, nothing about partners |
+| `GET /users/id/240/transactions`, `…/ledger`, `…/balance`, `…/credits`, `…/points`, `…/history`, `/transactions`, `/ledger`, `/partners`, `/balances` | 404 (Express's HTML page) -- no read of the ledger was found |
+| `DELETE /users/240`, `DELETE /users/phone/9995550003` | **500** `{"error":"Failed to delete user"}` -- after its balance moves the record could not be deleted, like a user with an exchange row (§3c); it is still there |
+
+So the attribute is **required**: a PATCH without it is refused, which is
+what every balance move in this repo sent until 2026-10-16. `adjustBalance`
+in `app.js` and `partner.js` takes a `partner` since then and every caller
+passes one: `IDEEM` for the demo page's Authenticate credit
+(`CREDIT_PARTNER`), and the booth's `apiName` from `PARTNERS` (`RSA`,
+`SWISSBIT`, `HID`, `ICE CREAM`, `POPCORN`, `OXYGEN`) on the partner page.
+The server keeps the string as sent, so spelling is the only grouping the
+owner's reports will have; the upper-case names follow the owner's example.
+Nothing we can read returns it.
 
 ## 3b. Confirmation-number routes
 
@@ -260,7 +286,9 @@ What this adds up to:
   registration of 2026-10-12, which the owner has been exchanging with since
   that day) would not delete, and why the two throwaways from this run are
   still there: the owner has to remove the rows first. Create throwaway users
-  for exchange tests expecting to leave them behind.
+  for exchange tests expecting to leave them behind. Since 2026-10-16 a
+  balance PATCH has the same effect (§3a, `userId` 240), so a throwaway for
+  a balance test stays too.
 - **No idempotency and no way back.** A repeated POST is a new row, nothing
   deletes an exchange, and there is no read of a single one.
   `api/exchange.js` posts once per completion, inside the claim that

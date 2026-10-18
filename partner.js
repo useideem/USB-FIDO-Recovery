@@ -36,7 +36,9 @@
  *   Add Custom Credit / Cash Out   + Custom   the amount typed in the box
  *   Deduct Custom Credit / Buy In  - Custom   the same amount, negative
  *
- * Each press is one PATCH /users/:id/balance (docs/user-api.md section 3a).
+ * Each press is one PATCH /users/:id/balance (docs/user-api.md section 3a)
+ * with the booth's apiName from PARTNERS as the `partner` the API records
+ * the move against (required on every balance PATCH since 2026-10-16).
  * The API ADDS what it is sent and rounds to cents, so a deduction is a
  * negative amount. It also allows an overdraft, so this page refuses a
  * deduction the balance cannot cover, the rule app.js applies to a charge.
@@ -76,14 +78,17 @@ export const PARTNER_KEY = 'partner_booth';
  * signed: positive adds, negative would deduct (none does today; a negative
  * entry draws red and goes through the overdraft check). A tile whose icon
  * file is missing shows the name alone.
+ * `apiName` is the string the user API records each balance move against
+ * (the `partner` it has required since 2026-10-16); the owner's example is
+ * upper-case, so these are too.
  */
 export const PARTNERS = [
-  { id: 'rsa',      name: 'RSA',       icon: './partners/rsa.png',       presets: [10, 30, 70] },
-  { id: 'swissbit', name: 'Swissbit',  icon: './partners/swissbit.png',  presets: [10, 30, 70] },
-  { id: 'hid',      name: 'HID',       icon: './partners/hid.png',       presets: [10, 30, 70] },
-  { id: 'icecream', name: 'Ice Cream', icon: './partners/ice-cream.svg', presets: [50], selfService: true },
-  { id: 'popcorn',  name: 'Popcorn',   icon: './partners/popcorn.svg',   presets: [50], selfService: true },
-  { id: 'oxygen',   name: 'Oxygen',    icon: './partners/oxygen.svg',    presets: [50], selfService: true }
+  { id: 'rsa',      name: 'RSA',       apiName: 'RSA',       icon: './partners/rsa.png',       presets: [10, 30, 70] },
+  { id: 'swissbit', name: 'Swissbit',  apiName: 'SWISSBIT',  icon: './partners/swissbit.png',  presets: [10, 30, 70] },
+  { id: 'hid',      name: 'HID',       apiName: 'HID',       icon: './partners/hid.png',       presets: [10, 30, 70] },
+  { id: 'icecream', name: 'Ice Cream', apiName: 'ICE CREAM', icon: './partners/ice-cream.svg', presets: [50], selfService: true },
+  { id: 'popcorn',  name: 'Popcorn',   apiName: 'POPCORN',   icon: './partners/popcorn.svg',   presets: [50], selfService: true },
+  { id: 'oxygen',   name: 'Oxygen',    apiName: 'OXYGEN',    icon: './partners/oxygen.svg',    presets: [50], selfService: true }
 ];
 
 /** What the QR code on a self-service booth opens: the demo site, where View Leaderboard lives. */
@@ -205,20 +210,22 @@ export async function findUserByPhone(phone, fetchImpl = fetch) {
 }
 
 /**
- * Moves the balance by `amount` through PATCH /users/:id/balance. The API
- * ADDS the amount it is sent (a deduction is a negative number), rounds to
- * cents, and will take the balance below zero without complaint, so the
- * overdraft check lives in the caller, not here. It is also not idempotent:
- * a timed-out request may have applied, so the caller must never retry.
- * The same function as in app.js.
+ * Moves the balance by `amount` through PATCH /users/:id/balance, recorded
+ * against `partner` (a non-blank string the API has required since
+ * 2026-10-16; a body without one is a 400). The API ADDS the amount it is
+ * sent (a deduction is a negative number), rounds to cents, and will take
+ * the balance below zero without complaint, so the overdraft check lives in
+ * the caller, not here. It is also not idempotent: a timed-out request may
+ * have applied, so the caller must never retry. The same function as in
+ * app.js.
  *
  * @returns {Promise<number>} The balance the server now holds.
  */
-export async function adjustBalance(userId, amount, fetchImpl = fetch) {
+export async function adjustBalance(userId, amount, partner, fetchImpl = fetch) {
   const res = await fetchImpl(`${DB_BASE}/users/${encodeURIComponent(userId)}/balance`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ amount })
+    body: JSON.stringify({ amount, partner })
   });
   if (!res.ok) throw new Error(`balance update returned ${res.status}`);
   const body = await res.json();
@@ -568,7 +575,7 @@ async function adjust(label, amount) {
   setBusy(true);
   showFlash(`${label}: ${amount < 0 ? 'deducting' : 'adding'} ${formatPoints(magnitude)}...`, 'info', 60000);
   try {
-    account.balance = await adjustBalance(account.userId, amount);
+    account.balance = await adjustBalance(account.userId, amount, partner.apiName);
     $('account-balance').textContent = formatBalance(account.balance);
     showFlash(`${label}: ${formatPoints(magnitude)} ${amount < 0 ? 'deducted' : 'added'}. Balance is now ${formatBalance(account.balance)}.`, 'success', 8000);
     return true;
