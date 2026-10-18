@@ -19,8 +19,8 @@
  *                       USB Key, Phone# Verified, Device Bound, Passkey
  *   2. Actions       -- the balance in points, then a step-up authenticate()
  *                       per protected action; Authenticate adds 25 points
- *                       the first time, then shows 0. A login lasts a day:
- *                       a return within 24 hours lands here with no prompt
+ *                       the first time, then shows 0. A login lasts 36
+ *                       hours: a return within them lands here, no prompt
  *   2b. P2P Exchange -- after the step-up, a QR code another attendee scans;
  *                       they confirm, verify with their passkey, and both
  *                       phones then show the other's contact (api/exchange.js)
@@ -1270,7 +1270,7 @@ async function updateUI() {
 
   // Determine which screen to show
   if (STATE.loginID) {
-    // A fresh login starts the day-long session; a restored one keeps its time
+    // A fresh login starts the 36-hour session; a restored one keeps its time
     if (readSession()?.user !== STATE.loginID) saveSession(STATE.loginID);
     if (exchange.active) {
       // A pending invite is completed by confirmExchange after the login it
@@ -1534,7 +1534,8 @@ async function logOut() {
 }
 
 // ---------------------------------------------------------------------------
-// Session — a login lasts a day (the owner's rule, 2026-10-14). updateUI
+// Session — a login lasts 36 hours (the owner's rule: a day from 2026-10-14,
+// 36 hours since 2026-10-18). updateUI
 // leaves { user, at } in localStorage the first time it sees a login for a
 // User ID, and a page load within SESSION_TTL_MS for the same User ID lands
 // on ACTIONS with no ceremony, provided the device is not suspended and
@@ -1546,9 +1547,9 @@ async function logOut() {
 // a verification, the ZSM step-up, and no load completes an exchange.
 // ---------------------------------------------------------------------------
 const SESSION_KEY = 'session';
-const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
+const SESSION_TTL_MS = 36 * 60 * 60 * 1000;
 
-/** The stored session when it is for someone and under a day old, else null. */
+/** The stored session when it is for someone and under 36 hours old, else null. */
 function readSession() {
   try {
     const raw = localStorage.getItem(SESSION_KEY);
@@ -1571,7 +1572,7 @@ function clearSession() {
 
 /**
  * On a page load: sets STATE.loginID again when this device logged `user`
- * in within the last day and can still authenticate them. A device that has
+ * in within the last 36 hours and can still authenticate them. A device that has
  * lost its ZSM credential drops the session instead.
  *
  * @returns {Promise<boolean>} True when the session was restored.
@@ -1757,7 +1758,7 @@ document.addEventListener('DOMContentLoaded', () => {
     usernameTimer = setTimeout(() => updateUI(), 800);
   });
 
-  // Still logged in from the last day? Then straight to the actions, or,
+  // Still logged in from the last 36 hours? Then straight to the actions, or,
   // from a P2P invite, to its confirm screen as the signed-in user (the
   // confirm's step-up is the verification; a load never completes one).
   (async () => {

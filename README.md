@@ -57,8 +57,8 @@ Phase 1: TRUST DEVICE
 Phase 2: LOGIN
   User authenticates on a trusted device. The ZSM share in IndexedDB
   cooperates with the server share, optionally combined with a Passkeys+
-  challenge. No hardware token needed for daily login. A login lasts 24
-  hours on that device: a return within the day lands on the Actions
+  challenge. No hardware token needed for daily login. A login lasts 36
+  hours on that device: a return within them lands on the Actions
   screen without a prompt; Log Out or Reset Device ends it.
 
 Phase 3: PROTECTED ACTIONS (step-up auth)
