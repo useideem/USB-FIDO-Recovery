@@ -86,6 +86,26 @@ export function hasLocalEnrollmentMarker(user) {
 }
 
 /**
+ * The enrollment marker itself, parsed, or null when this device holds none
+ * for the user (or holds one it cannot read). The demo page reads its
+ * `boundFromPasskey` flag: a marker written by a passkey rebinding rather
+ * than by the key, so the USB Key pill can say the key never vouched in this
+ * browser (since 2026-10-18).
+ *
+ * @param {string} user - The username to check.
+ * @returns {object|null}
+ */
+export function getLocalEnrollmentMarker(user) {
+  if (!user) return null;
+  try {
+    const raw = localStorage.getItem(ENROLLMENT_MARKER_PREFIX + user);
+    return raw ? JSON.parse(raw) : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
  * Returns true if this user's device is currently suspended.
  *
  * A suspended device requires the user to re-authenticate with their

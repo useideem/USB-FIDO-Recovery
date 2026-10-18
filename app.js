@@ -37,7 +37,7 @@
  */
 
 import {
-  hasLocalEnrollmentMarker,
+  getLocalEnrollmentMarker,
   ENROLLMENT_MARKER_PREFIX,
   isSuspended,
   setSuspended,
@@ -56,6 +56,7 @@ import {
   verifyNumber,
   isNumberVerified,
   setNumberVerified,
+  getNumberVerification,
   SNA_STEPS,
   SNA_SCENARIOS
 } from './sna.js';
@@ -1144,6 +1145,26 @@ function renderSnaStep(index, step, status) {
   if (row) row.className = `sna-step ${status}`;
 }
 
+/**
+ * What the two local markers say happened in THIS browser: whether the key
+ * vouched here (the marker bindDevice writes) and whether the carrier check
+ * ran here (the marker a successful check writes). A browser rebound from
+ * the passkey holds markers that say the opposite, `boundFromPasskey` and
+ * `carriedOver`, and reads false on both, so the pills tell the truth about
+ * a private tab: the login stands, but neither of those happened here (the
+ * owner's request, 2026-10-18). `keyMarker` separates that false from the
+ * unknown of a device that never wrote a key marker at all.
+ */
+function localMarkerStates(user) {
+  const key = user ? getLocalEnrollmentMarker(user) : null;
+  const number = user ? getNumberVerification(user) : null;
+  return {
+    keyMarker: !!key,
+    keyHere: !!key && !key.boundFromPasskey,
+    numberHere: !!number && !number.carriedOver
+  };
+}
+
 /** What the four indicators read for this user on this device. */
 async function snaIndicatorStates(user) {
   let device = false;
@@ -1156,7 +1177,8 @@ async function snaIndicatorStates(user) {
       passkey = status.hasRemotePasskey === true;
     }
   } catch (_) {}
-  return { ishield: hasLocalEnrollmentMarker(user), number: isNumberVerified(user), device, passkey };
+  const { keyHere, numberHere } = localMarkerStates(user);
+  return { ishield: keyHere, number: numberHere, device, passkey };
 }
 
 function renderSnaIndicators(states) {
@@ -1208,8 +1230,10 @@ function showScreen(screenId) {
 // up and the number check changes the second pill while it stays up.
 // ---------------------------------------------------------------------------
 async function refreshPills(user) {
-  // The key marker (localStorage — may be absent on Device B)
-  const hasIShield = user ? hasLocalEnrollmentMarker(user) : false;
+  // The two local markers (localStorage — absent on Device B, and saying
+  // boundFromPasskey / carriedOver in a browser the passkey rebound)
+  const { keyMarker, keyHere, numberHere } = localMarkerStates(user);
+  const hasIShield = keyHere;
 
   // ZSM & Passkey status (SDK)
   let hasZSM = false;
@@ -1235,11 +1259,14 @@ async function refreshPills(user) {
     else pill.classList.add('pill-neutral');
   }
 
-  // The four indicators the enrollment ends on: USB Key (local marker),
-  // Phone# Verified (the SNA marker), Device Bound (the ZSM credential),
-  // Passkey (the Passkeys+ credential).
-  setPill(document.getElementById('ishield-status'), !user ? '--' : (hasIShield ? 'true' : 'unknown'));
-  setPill(document.getElementById('number-status'), !user ? '--' : (isNumberVerified(user) ? 'true' : 'false'));
+  // The four indicators the enrollment ends on: USB Key (local marker:
+  // true when the key vouched here, false when a passkey rebinding stood in
+  // for it, unknown when this device never wrote one), Phone# Verified (the
+  // SNA marker: true when the check ran here, false when carried over or
+  // never run), Device Bound (the ZSM credential), Passkey (the Passkeys+
+  // credential).
+  setPill(document.getElementById('ishield-status'), !user ? '--' : (keyHere ? 'true' : keyMarker ? 'false' : 'unknown'));
+  setPill(document.getElementById('number-status'), !user ? '--' : (numberHere ? 'true' : 'false'));
   setPill(document.getElementById('zsm-status'), !user ? '--' : (hasZSM ? 'true' : 'false'));
   setPill(document.getElementById('passkey-status'), !user ? '--' : (hasPasskey ? 'true' : 'false'));
 
@@ -1347,8 +1374,11 @@ async function bindDevice(user) {
 // proof at all, which the key path can afford (the key has vouched by then)
 // and this one cannot. A cancel, or no passkey on this device, answers false
 // and login() carries on to the key. The carrier check ran at the first
-// binding and is not run again (the owner's rule, 2026-10-18): the marker is
-// carried over, as the key marker is.
+// binding and is not run again (the owner's rule, 2026-10-18). The two
+// markers this writes say what happened: boundFromPasskey on the key marker
+// and carriedOver on the number marker, so the USB Key and Phone# Verified
+// pills read false in this browser, where neither happened, while Device
+// Bound and Passkey read true off the SDK, which now holds a share here.
 // ---------------------------------------------------------------------------
 async function bindWithPasskey(user) {
   showFlash('flash-status', 'Confirm with your passkey to sign in on this browser...', 'success', 60000);
@@ -1356,8 +1386,8 @@ async function bindWithPasskey(user) {
   const enrollResult = await enroll(user, 'required');
   if (!enrollResult || enrollResult === false || enrollResult instanceof Error) return false;
 
-  // What the first binding wrote in another storage area: the key vouched
-  // then, and the carrier check passed then
+  // The counterparts of what the first binding wrote in another storage
+  // area, each saying it did not happen here (the pills read them as false)
   localStorage.setItem(ENROLLMENT_MARKER_PREFIX + user, JSON.stringify({
     boundFromPasskey: true,
     createdAt: new Date().toISOString()
