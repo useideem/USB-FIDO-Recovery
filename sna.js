@@ -203,20 +203,24 @@ export function isNumberVerified(user) {
 
 /**
  * Records a successful check for the user on this device. Pass the result
- * of verifyNumber(); only the fields the page later shows are kept.
+ * of verifyNumber(); only the fields the page later shows are kept. A
+ * browser rebound from the user's passkey passes `{ carriedOver: true }`
+ * instead (since 2026-10-18): the number passed the check when the phone was
+ * first bound, in another storage area, and is not checked again.
  *
  * @param {string} user - The User ID.
- * @param {{checkId: string, code: string|null, phone: string, verifiedAt: string|null}} result
+ * @param {{checkId?: string, code?: string|null, phone?: string, verifiedAt?: string|null, carriedOver?: boolean}} result
  */
 export function setNumberVerified(user, result) {
   if (!user) return;
-  const { checkId, code, phone, verifiedAt } = result;
+  const { checkId = null, code = null, phone = user, verifiedAt, carriedOver = false } = result;
   localStorage.setItem(NUMBER_VERIFIED_PREFIX + user, JSON.stringify({
     checkId,
     code,
     phone,
     verifiedAt: verifiedAt || new Date().toISOString(),
-    simulated: true
+    simulated: true,
+    carriedOver
   }));
 }
 

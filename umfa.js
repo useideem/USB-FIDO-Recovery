@@ -210,8 +210,13 @@ export async function checkAllEnrollment(user) {
  * IMPORTANT: initializeZSMClient(user) must be called before this function.
  *
  * @param {string} user - The username to enroll.
- * @param {boolean} [usingPasskeysPlus=false] - If true, enrolls both ZSM
- *   and Passkeys+. If false, enrolls ZSM only.
+ * @param {boolean|string} [usingPasskeysPlus=false] - If true, enrolls both
+ *   ZSM and Passkeys+ (the SDK's "preferred" mode: a cancelled passkey falls
+ *   back to a ZSM-only enrollment). If false, enrolls ZSM only. The SDK's
+ *   string modes pass through unchanged; 'required' makes the passkey
+ *   mandatory, which the demo page uses to rebind a browser from a passkey
+ *   the server already holds (bindWithPasskey in app.js), where a cancel has
+ *   to fail rather than enroll without proof.
  * @returns {Promise<object|false|Error>} The enrollment credential, false if
  *   already enrolled, or an Error on failure.
  */

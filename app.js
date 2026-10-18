@@ -744,7 +744,9 @@ function renderExchange(outcome) {
   } else if (awaitingConfirm) {
     // The prompt says where this phone stands: signed in today (the session
     // restored on load, the User ID read-only above), a User ID in the box
-    // but no login yet, or nothing in the box at all.
+    // but no login yet, or nothing in the box at all, which on a phone that
+    // has played before means a storage area the login never reached (a
+    // private tab, most often): the passkey rebinds it on Confirm.
     title = 'Confirm sharing contact info';
     const asking = record ? `${displayName(record.initiator)} wants to exchange contact info with you.` : '';
     status = !record ? 'Checking this code…'
@@ -752,7 +754,7 @@ function renderExchange(outcome) {
         ? `${asking} You are signed in as ${formatPhone(STATE.loginID)}: confirm with your passkey, and you both see each other's name and phone.`
       : getUsername()
         ? `${asking} Tap Confirm to verify with your passkey, and you both see each other's name and phone.`
-        : `${asking} Enter your User ID above, then tap Confirm to verify with your passkey.`;
+        : `${asking} This browser tab doesn't remember you (a private tab, perhaps). Enter your User ID above, then tap Confirm to verify with your passkey.`;
     state = 'info';
   } else {
     title = initiator ? 'Have them scan this code' : 'Exchanging contacts…';
@@ -1334,14 +1336,54 @@ async function bindDevice(user) {
 }
 
 // ---------------------------------------------------------------------------
-// login — Enter Game. The passkey alone on a bound device; the USB key only
-// the first time (binding) and after a suspension (reactivation). `btn` is
-// whichever button started it: Enter Game, or the exchange screen's Confirm.
+// bindWithPasskey — a browser storage area that holds no binding for a User
+// ID whose passkey Ideem's server already knows: a private tab, another
+// browser on the phone, a second device on the same keychain, or this phone
+// after Reset Device. The passkey proves the person the way the key did the
+// first time (since 2026-10-18): the SDK's enroll, handed the server's
+// challenge for that passkey, authenticates it and rebuilds the ZSM share
+// here. Enrolled in the SDK's "required" mode on purpose: in "preferred"
+// mode a cancelled passkey sheet falls back to a ZSM-only enrollment with no
+// proof at all, which the key path can afford (the key has vouched by then)
+// and this one cannot. A cancel, or no passkey on this device, answers false
+// and login() carries on to the key. The carrier check ran at the first
+// binding and is not run again (the owner's rule, 2026-10-18): the marker is
+// carried over, as the key marker is.
+// ---------------------------------------------------------------------------
+async function bindWithPasskey(user) {
+  showFlash('flash-status', 'Confirm with your passkey to sign in on this browser...', 'success', 60000);
+  await initializeZSMClient(user);
+  const enrollResult = await enroll(user, 'required');
+  if (!enrollResult || enrollResult === false || enrollResult instanceof Error) return false;
+
+  // What the first binding wrote in another storage area: the key vouched
+  // then, and the carrier check passed then
+  localStorage.setItem(ENROLLMENT_MARKER_PREFIX + user, JSON.stringify({
+    boundFromPasskey: true,
+    createdAt: new Date().toISOString()
+  }));
+  if (!isNumberVerified(user)) setNumberVerified(user, { carriedOver: true });
+
+  STATE.loginID = user;
+  showFlash('flash-status', 'Passkey verified', 'success');
+  await updateUI();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// login — Enter Game. The passkey alone on a bound device, and alone again
+// on a browser that lost the binding but whose person the server knows by
+// their passkey (bindWithPasskey); the USB key only where there is no
+// passkey to ask instead (the first binding) and after a suspension
+// (reactivation). `btn` is whichever button started it: Enter Game, or the
+// exchange screen's Confirm.
 //
 // The device's own state picks the ceremony. A device that holds a ZSM
 // credential for the typed User ID and is not suspended goes straight to the
 // Passkeys+ authenticate: no key, no dialog. A device with no credential for
-// it is walked through the four steps: the guide dialog names them and its
+// it, but a passkey for it on the server, is rebound by that passkey: no key,
+// no dialog, no second carrier check. A device with no credential and no
+// passkey is walked through the four steps: the guide dialog names them and its
 // Start runs the open get (the tap is the user gesture the prompt needs); the
 // User ID the key hands back has to be the one in the box (reconcileUserId: a
 // different person stops the flow, a different spelling of the same number is
@@ -1362,11 +1404,13 @@ async function login(btn = document.getElementById('login-btn')) {
     await initializeZSMClient(user);
     let hasLocalZSM = false;
     let hasPasskey = false;
+    let hasServerPasskey = false;  // the server's challenge for an existing passkey, which enroll authenticates rather than registering a new one
     try {
       const status = await checkAllEnrollment(user);
       if (status && !(status instanceof Error)) {
         hasLocalZSM = status.hasZSMCred === true || !!status.zsmCredID;
         hasPasskey = status.hasRemotePasskey === true;
+        hasServerPasskey = !!status.pkpCredential;
       }
     } catch (_) {}
     const suspended = isSuspended(user);
@@ -1409,6 +1453,14 @@ async function login(btn = document.getElementById('login-btn')) {
       STATE.loginID = user;
       await updateUI();
       return;
+    }
+
+    // No binding here, but a passkey for this User ID on the server (a
+    // private tab, another browser, a second device, this phone after Reset
+    // Device): the passkey alone rebinds it. A declined or absent passkey
+    // carries on to the key below.
+    if (!hasLocalZSM && !suspended && hasServerPasskey) {
+      if (await bindWithPasskey(user)) return;
     }
 
     // Step 2: a device with nothing for this User ID sees the guide first:

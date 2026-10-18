@@ -59,7 +59,11 @@ Phase 2: LOGIN
   cooperates with the server share, optionally combined with a Passkeys+
   challenge. No hardware token needed for daily login. A login lasts 36
   hours on that device: a return within them lands on the Actions
-  screen without a prompt; Log Out or Reset Device ends it.
+  screen without a prompt; Log Out or Reset Device ends it. A browser
+  that holds no ZSM share for a number whose passkey the server knows
+  (a private tab, another browser, a second device on the same keychain)
+  is rebound by the passkey alone: no key, and the carrier check is not
+  repeated.
 
 Phase 3: PROTECTED ACTIONS (step-up auth)
   After login, the Actions screen shows the attendee's points balance
