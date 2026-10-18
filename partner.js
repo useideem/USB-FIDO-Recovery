@@ -30,8 +30,9 @@
  * hands back its user handle: the phone number register.html wrote there, as
  * bare digits. The page looks that number up in the user database and shows
  * the account, in points, with the partner's preset buttons (PARTNERS: +10,
- * +30, +70 for the three sponsors, +50 for Ice Cream, Popcorn and Oxygen)
- * and the two Custom buttons that take whatever is typed in the box:
+ * +30, +70 for RSA and Swissbit, +10, +50, +500 for HID, +50 for Ice Cream,
+ * Popcorn and Oxygen) and the two Custom buttons that take whatever is typed
+ * in the box:
  *
  *   Add Custom Credit / Cash Out   + Custom   the amount typed in the box
  *   Deduct Custom Credit / Buy In  - Custom   the same amount, negative
@@ -85,7 +86,7 @@ export const PARTNER_KEY = 'partner_booth';
 export const PARTNERS = [
   { id: 'rsa',      name: 'RSA',       apiName: 'RSA',       icon: './partners/rsa.png',       presets: [10, 30, 70] },
   { id: 'swissbit', name: 'Swissbit',  apiName: 'SWISSBIT',  icon: './partners/swissbit.png',  presets: [10, 30, 70] },
-  { id: 'hid',      name: 'HID',       apiName: 'HID',       icon: './partners/hid.png',       presets: [10, 30, 70] },
+  { id: 'hid',      name: 'HID',       apiName: 'HID',       icon: './partners/hid.png',       presets: [10, 50, 500] },
   { id: 'icecream', name: 'Ice Cream', apiName: 'ICE CREAM', icon: './partners/ice-cream.svg', presets: [50], selfService: true },
   { id: 'popcorn',  name: 'Popcorn',   apiName: 'POPCORN',   icon: './partners/popcorn.svg',   presets: [50], selfService: true },
   { id: 'oxygen',   name: 'Oxygen',    apiName: 'OXYGEN',    icon: './partners/oxygen.svg',    presets: [50], selfService: true }
