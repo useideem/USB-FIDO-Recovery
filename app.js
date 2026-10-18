@@ -493,9 +493,11 @@ const PENDING_EXCHANGE_KEY = 'pendingExchange';
  * phone showed the QR) or 'responder' (this phone scanned it). `record` is
  * the server's copy, refreshed by polling or by the completion response.
  * `confirmed` is the responder's tap on "Confirm sharing contact info";
- * until then the screen only asks.
+ * until then the screen only asks. `outcome` is the terminal state the
+ * screen was last drawn with (expired, used or an error), kept so a redraw
+ * from updateUI, as the User ID is typed, does not lose it.
  */
-const exchange = { active: false, role: null, code: null, record: null, pollTimer: null, confirmed: false };
+const exchange = { active: false, role: null, code: null, record: null, pollTimer: null, confirmed: false, outcome: null };
 
 function getPendingExchange() {
   try { return sessionStorage.getItem(PENDING_EXCHANGE_KEY) || ''; } catch (_) { return ''; }
@@ -543,7 +545,7 @@ async function startExchange(user) {
     showFlash('action-status', `P2P Contact Exchange unavailable: ${data.error || 'no response'}`, 'failure', 4000);
     return;
   }
-  Object.assign(exchange, { active: true, role: 'initiator', code: data.code, record: data });
+  Object.assign(exchange, { active: true, role: 'initiator', code: data.code, record: data, outcome: null });
   showScreen('EXCHANGE');
   renderExchange();
   await renderExchangeQr(exchangeUrl(data.code));
@@ -580,7 +582,7 @@ async function pollExchange() {
 async function completeExchange(user, code) {
   setPendingExchange('');
   const record = exchange.code === code ? exchange.record : null;
-  Object.assign(exchange, { active: true, role: 'responder', code, record, confirmed: true });
+  Object.assign(exchange, { active: true, role: 'responder', code, record, confirmed: true, outcome: null });
   showScreen('EXCHANGE');
   renderExchange();
   const { status, ok, data } = await exchangeFetch(`?code=${encodeURIComponent(code)}`, { userId: user });
@@ -603,7 +605,7 @@ async function completeExchange(user, code) {
  */
 async function openExchangeInvite(code) {
   setPendingExchange(code);
-  Object.assign(exchange, { active: true, role: 'responder', code, record: null, confirmed: false });
+  Object.assign(exchange, { active: true, role: 'responder', code, record: null, confirmed: false, outcome: null });
   showScreen('EXCHANGE');
   renderExchange();
   const { status, ok, data } = await exchangeFetch(`?code=${encodeURIComponent(code)}`);
@@ -622,11 +624,14 @@ async function openExchangeInvite(code) {
 }
 
 /**
- * The confirm tap. The passkey verification is the demo's own login: on a
- * phone that is not bound yet that is the iShield touch plus ZSM enrollment,
- * on a bound phone the ZSM authenticate. login() ends in updateUI, which sees
- * the pending code and calls completeExchange. Should the page already be
- * logged in, the ZSM step-up alone is the verification, as for the actions.
+ * The confirm tap. On a phone not logged in today the passkey verification
+ * is the demo's own login: on a phone that is not bound yet that is the
+ * iShield touch plus ZSM enrollment, on a bound phone the ZSM authenticate.
+ * login() ends in updateUI, which keeps this screen up; the completion is
+ * sent from here once it has set STATE.loginID, and never by a page load on
+ * its own, so a session restored on load (since 2026-10-18) still has to be
+ * confirmed. A phone already logged in gets the ZSM step-up alone, as for
+ * the actions.
  */
 async function confirmExchange() {
   const btn = document.getElementById('exchange-confirm');
@@ -637,6 +642,8 @@ async function confirmExchange() {
   }
   if (!STATE.loginID) {
     await login(btn);
+    // Cancel during the login ends the exchange; a failed login leaves no loginID
+    if (STATE.loginID && exchange.active && exchange.code) await completeExchange(STATE.loginID, exchange.code);
     return;
   }
   btn.classList.add('loading');
@@ -674,7 +681,7 @@ function applyExchangePoints(record) {
 /** Leaves the exchange: stops polling and forgets the record and any pending code. */
 function endExchange() {
   if (exchange.pollTimer) clearTimeout(exchange.pollTimer);
-  Object.assign(exchange, { active: false, role: null, code: null, record: null, pollTimer: null, confirmed: false });
+  Object.assign(exchange, { active: false, role: null, code: null, record: null, pollTimer: null, confirmed: false, outcome: null });
   setPendingExchange('');
   document.getElementById('exchange-qr')?.replaceChildren();
   document.getElementById('exchange-contact-list')?.replaceChildren();
@@ -700,8 +707,12 @@ async function renderExchangeQr(url) {
 /**
  * Puts the exchange on screen. The card shows the OTHER party once the record
  * has both sides; until then the status line says what is being waited on.
+ * A terminal outcome passed in (expired, used, error) is remembered on
+ * `exchange`, and a call without one redraws the last state.
  */
-function renderExchange({ expired = false, used = false, error = '' } = {}) {
+function renderExchange(outcome) {
+  if (outcome !== undefined) exchange.outcome = outcome;
+  const { expired = false, used = false, error = '' } = exchange.outcome || {};
   const $ = (id) => document.getElementById(id);
   const record = exchange.record;
   const initiator = exchange.role === 'initiator';
@@ -731,10 +742,17 @@ function renderExchange({ expired = false, used = false, error = '' } = {}) {
       : `Exchange complete. ${displayName(record.initiator)} has your contact too.`;
     state = 'success';
   } else if (awaitingConfirm) {
+    // The prompt says where this phone stands: signed in today (the session
+    // restored on load, the User ID read-only above), a User ID in the box
+    // but no login yet, or nothing in the box at all.
     title = 'Confirm sharing contact info';
-    status = record
-      ? `${displayName(record.initiator)} wants to exchange contact info with you. You will verify with your passkey, then you both see each other's name and phone.`
-      : 'Checking this code…';
+    const asking = record ? `${displayName(record.initiator)} wants to exchange contact info with you.` : '';
+    status = !record ? 'Checking this code…'
+      : STATE.loginID
+        ? `${asking} You are signed in as ${formatPhone(STATE.loginID)}: confirm with your passkey, and you both see each other's name and phone.`
+      : getUsername()
+        ? `${asking} Tap Confirm to verify with your passkey, and you both see each other's name and phone.`
+        : `${asking} Enter your User ID above, then tap Confirm to verify with your passkey.`;
     state = 'info';
   } else {
     title = initiator ? 'Have them scan this code' : 'Exchanging contacts…';
@@ -1254,14 +1272,12 @@ async function updateUI() {
   if (STATE.loginID) {
     // A fresh login starts the day-long session; a restored one keeps its time
     if (readSession()?.user !== STATE.loginID) saveSession(STATE.loginID);
-    const pendingCode = getPendingExchange();
-    if (pendingCode) {
-      // The passkey verification that just set loginID is what the scanned
-      // exchange was waiting for, so it completes right away.
-      completeExchange(STATE.loginID, pendingCode)
-        .catch(err => console.error('[exchange] completion failed:', err));
-    } else if (exchange.active) {
+    if (exchange.active) {
+      // A pending invite is completed by confirmExchange after the login it
+      // runs, never here: a session restored on load lands on the confirm
+      // screen as the signed-in user, and the prompt is redrawn to say so.
       showScreen('EXCHANGE');
+      renderExchange();
     } else if (contacts.active) {
       showScreen('CONTACTS');
     } else {
@@ -1274,8 +1290,10 @@ async function updateUI() {
     // moves the screen until it settles.
     showScreen('SNA');
   } else if (exchange.active) {
-    // Scanned a P2P QR and not verified yet: the confirm screen stays up
+    // Scanned a P2P QR and not verified yet: the confirm screen stays up,
+    // its prompt redrawn for whether the User ID box has been filled in
     showScreen('EXCHANGE');
+    renderExchange();
   } else {
     showScreen('LOGIN');
   }
@@ -1521,9 +1539,11 @@ async function logOut() {
 // User ID, and a page load within SESSION_TTL_MS for the same User ID lands
 // on ACTIONS with no ceremony, provided the device is not suspended and
 // still holds the ZSM credential. The timestamp is the login's; a return
-// does not refresh it. Log Out clears it, Reset Device wipes it with the
-// rest, and a page opened from a P2P invite never restores it, so the
-// responder's confirm stays a verification.
+// does not refresh it. Log Out clears it and Reset Device wipes it with the
+// rest. A page opened from a P2P invite restores it like any other load
+// (since 2026-10-18; before, it never did, and a responder logged in that
+// day found an editable, apparently logged-out page): the confirm is still
+// a verification, the ZSM step-up, and no load completes an exchange.
 // ---------------------------------------------------------------------------
 const SESSION_KEY = 'session';
 const SESSION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -1737,10 +1757,11 @@ document.addEventListener('DOMContentLoaded', () => {
     usernameTimer = setTimeout(() => updateUI(), 800);
   });
 
-  // Still logged in from the last day? Then straight to the actions. Not
-  // from a P2P invite, whose confirm is the verification.
+  // Still logged in from the last day? Then straight to the actions, or,
+  // from a P2P invite, to its confirm screen as the signed-in user (the
+  // confirm's step-up is the verification; a load never completes one).
   (async () => {
-    if (!getPendingExchange()) await restoreSession(getUsername());
+    await restoreSession(getUsername());
     await updateUI();
   })();
 });
