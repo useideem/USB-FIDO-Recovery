@@ -281,6 +281,13 @@ What this adds up to:
 - **Contacts carry `Company` and `email`**, which no user read other than
   the by-badge one returns (§3b), and `lastExchangedAt`. Repeats collapse
   into the one entry; the exchanges list keeps every row.
+- **The contact list is the demo's test for a new contact.** Because it
+  holds one entry per sender whatever the number of rows, `api/exchange.js`
+  reads both sides' lists (`?limit=100`, paged) before posting the rows and
+  credits each side 100 points (§3a, partner `IDEEM`) only when the other's
+  `userId` was not there (since 2026-10-18). Measured live that day between
+  `userId` 240 and 231: the first exchange credited both, the second
+  credited neither.
 - **Exchanges make a user undeletable.** Both DELETE routes answer 500 once a
   record is a sender or receiver. This is why `userId` 5 (the live
   registration of 2026-10-12, which the owner has been exchanging with since

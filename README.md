@@ -81,7 +81,10 @@ Phase 3: PROTECTED ACTIONS (step-up auth)
   passkey verification is what authorizes it. The completed exchange is
   written to that database too (POST /exchanges, one row each way, so each
   attendee gains the other as a contact there); the screen says whether
-  that landed and lists the attendee's contacts from it.
+  that landed and lists the attendee's contacts from it. Each side earns
+  100 points for a new contact, credited by api/exchange.js at completion;
+  exchanging again with the same person earns nothing, and the screen says
+  which it was.
 
 Phase 4: ENABLING / DISABLING DEVICE
   User can disable device with click of button. To re-enable device, user must reinsert iShield Key.

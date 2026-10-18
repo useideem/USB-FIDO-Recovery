@@ -538,7 +538,7 @@ body {
   color: var(--color-warning);
 }
 
-/* Whether the exchange reached the user database, under the card */
+/* Under the card: whether the exchange reached the user database, and what this side earned for it */
 .exchange-saved {
   margin: 0 0 12px;
   text-align: center;

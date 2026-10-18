@@ -14,6 +14,15 @@
  * `upstream` field says whether that landed; the exchange itself goes
  * through either way.
  *
+ * Since 2026-10-18 a completion also pays for the contact: each side earns
+ * NEW_CONTACT_POINTS when the other person was not already in its contact
+ * list. The lists are read before the rows go up, so an exchange with
+ * someone already on the list earns nothing, and the credit is a balance
+ * PATCH made here rather than by the pages, so both sides get it exactly
+ * once per completion (the claim key below makes a completion single-use)
+ * whether or not their page is still open. The record's `points` field
+ * says what each side got and why.
+ *
  * The server never sees a ZSM token: the SDK's validate-token call has a
  * window of a few seconds and stays inside umfa.js, exactly as for login. So
  * this function trusts the User ID it is sent. That is deliberate for a
@@ -50,8 +59,23 @@ const TTL_SECONDS = Number(process.env.EXCHANGE_TTL_SECONDS) || 600;
 /** After completion the record only has to outlive A's next poll. */
 const MIN_TTL_AFTER_COMPLETION = 60;
 
-/** How long one call to the user API may take; a completion makes three. */
-const UPSTREAM_TIMEOUT_MS = 4000;
+/**
+ * How long one call to the user API may take. A completion makes four rounds
+ * of them (the responder's lookup, the two contact lists, the two rows, the
+ * two credits), so the worst case stays inside a ten-second function; the
+ * API answers in about a tenth of a second (measured 2026-10-18).
+ */
+const UPSTREAM_TIMEOUT_MS = 2500;
+
+/**
+ * What each side earns for a new contact, in points, credited at completion
+ * (2026-10-18). app.js draws the same number on the P2P button
+ * (ACTION_POINTS there); keep the two equal.
+ */
+const NEW_CONTACT_POINTS = 100;
+
+/** The partner the user API records those credits against: the demo page's CREDIT_PARTNER. */
+const CREDIT_PARTNER = 'IDEEM';
 
 /** Unambiguous characters, in case a code is ever read out loud. */
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -188,7 +212,8 @@ async function create(userId) {
     initiator,
     responder: null,
     completedAt: null,
-    upstream: null
+    upstream: null,
+    points: null
   };
   // A collision on 40 random bits is not expected; the loop is only so a
   // collision would never silently overwrite someone's open exchange.
@@ -228,7 +253,11 @@ async function complete(code, userId) {
 
   record.responder = await lookupContact(userId);
   record.completedAt = new Date().toISOString();
-  record.upstream = await recordExchange(record.initiator, record.responder);
+  // Who already had whom, read before the rows go up and change the answer
+  const known = await knownContacts(record.initiator, record.responder);
+  const { upstream, received } = await recordExchange(record.initiator, record.responder);
+  record.upstream = upstream;
+  record.points = await creditNewContacts(record, known, received);
   await store.set(recordKey(code), JSON.stringify(record), remaining);
   return json(withStore(record));
 }
@@ -297,25 +326,35 @@ function phoneDigits(value) {
  * whichever landed. Nothing retries: the API has no idempotency key and a
  * repeat is a new row.
  *
- * @returns {Promise<{ saved: boolean, exchangeIds: number[], reason: string }>}
+ * @returns {Promise<{ upstream: { saved: boolean, exchangeIds: number[], reason: string },
+ *   received: { initiator: boolean, responder: boolean } }>} `upstream` is
+ *   what the record carries; `received` says whose row landed (the one that
+ *   gives that side the other as a contact), which the credit depends on.
  */
 async function recordExchange(initiator, responder) {
+  const none = { initiator: false, responder: false };
   const missing = [initiator, responder].filter(c => !c.found || !Number.isInteger(c.recordId));
   if (missing.length) {
     return {
-      saved: false,
-      exchangeIds: [],
-      reason: `${missing.map(c => c.userId).join(' and ')} ${missing.length > 1 ? 'have' : 'has'} no record in the user database`
+      upstream: {
+        saved: false,
+        exchangeIds: [],
+        reason: `${missing.map(c => c.userId).join(' and ')} ${missing.length > 1 ? 'have' : 'has'} no record in the user database`
+      },
+      received: none
     };
   }
-  const directions = [[initiator, responder], [responder, initiator]];
+  // [sender, receiver, the side that gains a contact from this row]
+  const directions = [[initiator, responder, 'responder'], [responder, initiator, 'initiator']];
   const results = await Promise.allSettled(
     directions.map(([sender, receiver]) => postExchange(sender.recordId, receiver.recordId))
   );
   const exchangeIds = results.filter(r => r.status === 'fulfilled').map(r => r.value);
   const reasons = results.filter(r => r.status === 'rejected').map(r => r.reason?.message || String(r.reason));
   if (reasons.length) console.warn(`[exchange] upstream record failed: ${reasons.join('; ')}`);
-  return { saved: reasons.length === 0, exchangeIds, reason: reasons.join('; ') };
+  const received = { ...none };
+  directions.forEach(([, , side], i) => { received[side] = results[i].status === 'fulfilled'; });
+  return { upstream: { saved: reasons.length === 0, exchangeIds, reason: reasons.join('; ') }, received };
 }
 
 /** One POST /exchanges: resolves to the new exchangeId, rejects with the API's error text. */
@@ -329,6 +368,105 @@ async function postExchange(senderId, receiverId) {
   try { body = await res.json(); } catch (_) { /* no JSON body */ }
   if (!res.ok) throw new Error(body.error || `exchange POST returned ${res.status}`);
   return body.exchangeId;
+}
+
+// ---------------------------------------------------------------------------
+// Points for a new contact
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether each side already had the other in its contacts, read before the
+ * new rows go up. The user API lists one entry per sender however many
+ * exchanges there were (GET /users/id/:id/contacts, docs/user-api.md §3c),
+ * so the other's record id being in the list is the test. true or false,
+ * or null for a side with no record or a list that could not be read.
+ *
+ * @returns {Promise<{ initiator: boolean|null, responder: boolean|null }>}
+ */
+async function knownContacts(initiator, responder) {
+  const [a, b] = await Promise.all([hasContact(initiator, responder), hasContact(responder, initiator)]);
+  return { initiator: a, responder: b };
+}
+
+async function hasContact(owner, other) {
+  if (!Number.isInteger(owner.recordId) || !Number.isInteger(other.recordId)) return null;
+  try {
+    return (await contactIds(owner.recordId)).includes(other.recordId);
+  } catch (err) {
+    console.warn(`[exchange] contacts of ${owner.userId} could not be read: ${err.message}`);
+    return null;
+  }
+}
+
+/** The contacts list caps a page at 100 (docs/user-api.md §3c). */
+const CONTACTS_PAGE = 100;
+/** Pages read at most: an attendee with more contacts than this is treated as if the list could not be read. */
+const CONTACTS_MAX_PAGES = 10;
+
+/** Every contact's record id for a record, page by page. Throws when a page cannot be read. */
+async function contactIds(recordId) {
+  const ids = [];
+  for (let page = 0; page < CONTACTS_MAX_PAGES; page++) {
+    const res = await dbFetch(`/users/id/${recordId}/contacts?limit=${CONTACTS_PAGE}&offset=${page * CONTACTS_PAGE}`);
+    if (!res.ok) throw new Error(`contacts read returned ${res.status}`);
+    const body = await res.json();
+    const contacts = Array.isArray(body?.contacts) ? body.contacts : [];
+    ids.push(...contacts.map(c => c.userId));
+    if (contacts.length < CONTACTS_PAGE) return ids;
+  }
+  throw new Error(`more than ${CONTACTS_MAX_PAGES * CONTACTS_PAGE} contacts`);
+}
+
+/**
+ * Credits NEW_CONTACT_POINTS to each side that gained a new contact: its
+ * row landed (`received`, the one that gives it the other as a contact) and
+ * the other was not already in its list (`known`). Each side's outcome
+ * carries a code the page words: new (credited, with the balance the API
+ * answered), known (already a contact), unread (the list could not be read,
+ * so no credit rather than a possible repeat), unsaved (the row did not
+ * land), no-record (nothing to credit), failed (the PATCH was refused or
+ * did not answer; `detail` has the error). The PATCH is
+ * /users/:id/balance with { amount, partner } (docs/user-api.md §3a) and is
+ * never retried: the API has no idempotency key.
+ *
+ * @returns {Promise<{ amount: number, initiator: object, responder: object }>}
+ */
+async function creditNewContacts(record, known, received) {
+  const sides = { initiator: record.initiator, responder: record.responder };
+  const outcomes = await Promise.all(Object.entries(sides).map(async ([side, contact]) => {
+    const outcome = { credited: false, code: '', balance: null, detail: '' };
+    if (!contact.found || !Number.isInteger(contact.recordId)) outcome.code = 'no-record';
+    else if (!received[side]) outcome.code = 'unsaved';
+    else if (known[side] === true) outcome.code = 'known';
+    else if (known[side] === null) outcome.code = 'unread';
+    else {
+      try {
+        outcome.balance = await creditBalance(contact.recordId, NEW_CONTACT_POINTS);
+        outcome.credited = true;
+        outcome.code = 'new';
+      } catch (err) {
+        console.warn(`[exchange] credit for ${contact.userId} failed: ${err.message}`);
+        outcome.code = 'failed';
+        outcome.detail = err.message;
+      }
+    }
+    return [side, outcome];
+  }));
+  return { amount: NEW_CONTACT_POINTS, ...Object.fromEntries(outcomes) };
+}
+
+/** One balance PATCH by record id: resolves to the balance the API now holds (null if the reply has none), rejects with its error text. */
+async function creditBalance(recordId, amount) {
+  const res = await dbFetch(`/users/${recordId}/balance`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ amount, partner: CREDIT_PARTNER })
+  });
+  let body = {};
+  try { body = await res.json(); } catch (_) { /* no JSON body */ }
+  if (!res.ok) throw new Error(body.error || `balance PATCH returned ${res.status}`);
+  const balance = Number(body.user?.balance ?? body.balance);
+  return Number.isFinite(balance) ? balance : null;
 }
 
 /** fetch against the user API with a timeout, so a stalled upstream cannot hold a completion. */
@@ -382,7 +520,8 @@ function health() {
     store: store.kind,
     redisVar: REDIS ? REDIS.urlKey : null,
     redisEnv: redisEnvNames(),
-    ttlSeconds: TTL_SECONDS
+    ttlSeconds: TTL_SECONDS,
+    newContactPoints: NEW_CONTACT_POINTS
   });
 }
 

@@ -77,7 +77,7 @@
         </div>
         <div class="action-grid">
           <button class="btn btn-action" data-action="authenticate">Authenticate<span class="btn-points"></span></button>
-          <button class="btn btn-action" data-action="p2p-contact-exchange">P2P Contact Exchange</button>
+          <button class="btn btn-action" data-action="p2p-contact-exchange">P2P Contact Exchange<span class="btn-points"></span></button>
           <button class="btn btn-action" id="view-contacts-btn" type="button">View Contacts</button>
           <a class="btn btn-action" href="https://sbit.authconcepts.com:3099/dashboard.html" target="_blank" rel="noopener">View Leaderboard</a>
         </div>
@@ -105,9 +105,11 @@
         <div class="contact-phone" id="exchange-phone"></div>
         <div class="contact-id" id="exchange-userid"></div>
       </div>
-      <!-- Whether the exchange reached the user database, then this
-           attendee's contacts from it (renderContacts, once complete) -->
+      <!-- Whether the exchange reached the user database, what this side
+           earned for the contact, then this attendee's contacts from it
+           (renderContacts, once complete) -->
       <p class="exchange-saved" id="exchange-saved" hidden></p>
+      <p class="exchange-saved" id="exchange-points" hidden></p>
       <div class="exchange-contacts" id="exchange-contacts" hidden>
         <p class="exchange-contacts-title">Your contacts</p>
         <ul class="contact-list" id="exchange-contact-list"></ul>

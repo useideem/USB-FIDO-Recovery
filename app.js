@@ -283,14 +283,17 @@ const DB_BASE = './db';
 
 /**
  * What each action earns, in points, the way a partner booth credits them
- * (since 2026-10-14; until then Authenticate charged this amount), the
- * first time only: once the credit has landed, a marker in localStorage
- * (AWARDED_PREFIX below) turns the entry to 0 for that User ID on this
- * device, the button says so, and later presses step up and stop. Actions
- * missing from this table step up and stop too; they touch no balance. P2P
- * Contact Exchange branches to its own screen before this table is
- * consulted, so its entry is unused until it is decided whether an exchange
- * should earn anything.
+ * (since 2026-10-14; until then Authenticate charged this amount).
+ * Authenticate earns its entry the first time only: once the credit has
+ * landed, a marker in localStorage (AWARDED_PREFIX below) turns the entry
+ * to 0 for that User ID on this device, the button says so, and later
+ * presses step up and stop. P2P Contact Exchange earns its entry for every
+ * NEW contact, on both sides, credited by api/exchange.js when the exchange
+ * completes (NEW_CONTACT_POINTS there, since 2026-10-18; keep the two
+ * equal): this page only draws the number on the button, which never turns
+ * to 0 since no marker is written for it, and the outcome on the exchange
+ * screen. Actions missing from this table step up and stop; they touch no
+ * balance.
  */
 const ACTION_POINTS = {
   'authenticate': 25,
@@ -471,10 +474,11 @@ async function awardPoints(user, actionLabel, points) {
 // database, writes the exchange to that database's exchanges table (one row
 // each way, so each attendee gains the other as a contact there), the
 // initiator's poll sees it, and both screens show the other person, say
-// whether the row landed, and list this attendee's contacts from the same
-// database. The ZSM token never leaves umfa.js: its validation window is a
-// few seconds, so the server trusts the User ID and looks the contact up
-// itself.
+// whether the row landed, what this side earned for the contact (100 points
+// for a new one, credited by the server at completion, on both sides), and
+// list this attendee's contacts from the same database. The ZSM token never
+// leaves umfa.js: its validation window is a few seconds, so the server
+// trusts the User ID and looks the contact up itself.
 // ---------------------------------------------------------------------------
 
 /** The matchmaker, relative like DB_BASE: dev-server.mjs and Vercel both mount it here. */
@@ -560,6 +564,7 @@ async function pollExchange() {
     exchange.record = data;
     if (data.responder) {
       renderExchange();
+      applyExchangePoints(data);
       void renderContacts(data.initiator);
       return;
     }
@@ -585,6 +590,7 @@ async function completeExchange(user, code) {
   if (!ok) return renderExchange({ error: data.error || 'no response' });
   exchange.record = data;
   renderExchange();
+  applyExchangePoints(data);
   void renderContacts(data.responder);
 }
 
@@ -645,6 +651,23 @@ async function confirmExchange() {
   } finally {
     btn.classList.remove('loading');
     btn.removeAttribute('aria-busy');
+  }
+}
+
+/**
+ * Puts the credit the matchmaker reports for this side onto the balance the
+ * ACTIONS screen shows, from the balance the record carries when the
+ * account on hand is this user's, otherwise by a re-read. Nothing to do
+ * when this side earned nothing.
+ */
+function applyExchangePoints(record) {
+  const mine = record?.points?.[exchange.role];
+  if (!mine?.credited || !STATE.loginID) return;
+  if (account && accountFor === STATE.loginID && Number.isFinite(mine.balance)) {
+    account.balance = mine.balance;
+    renderBalance();
+  } else {
+    void refreshAccount(STATE.loginID);
   }
 }
 
@@ -754,6 +777,15 @@ function renderExchange({ expired = false, used = false, error = '' } = {}) {
   saved.textContent = !upstream ? ''
     : upstream.saved ? 'Saved: you are in each other\'s contacts in the conference database.'
     : `Not saved to the conference database: ${upstream.reason || 'unknown error'}.`;
+  // What this side earned for the contact (api/exchange.js credits it at
+  // completion: 100 points for a new contact). A record without `points` is
+  // from before that existed and shows nothing.
+  const pointsLine = $('exchange-points');
+  const mine = complete && record.points ? record.points[initiator ? 'initiator' : 'responder'] : null;
+  const pointsText = mine ? exchangePointsText(mine, record.points.amount, other) : '';
+  pointsLine.hidden = !pointsText;
+  pointsLine.className = 'exchange-saved ' + (mine?.credited ? 'success' : 'failure');
+  pointsLine.textContent = pointsText;
   // The contacts list belongs to a completed exchange only; renderContacts
   // fills and shows it once the list has been read.
   if (!complete) $('exchange-contacts').hidden = true;
@@ -774,6 +806,26 @@ function displayName(contact) {
   if (!contact) return '';
   const name = `${contact.firstName || ''} ${contact.lastName || ''}`.trim();
   return name || contact.userId || '';
+}
+
+/**
+ * The line under the other person's card for what this side earned, worded
+ * from the outcome code api/exchange.js sends (creditNewContacts there).
+ * An unknown code draws nothing.
+ */
+function exchangePointsText(outcome, amount, other) {
+  const points = formatPoints(amount);
+  switch (outcome.code) {
+    case 'new':
+      return `You earned ${points} for a new contact.`
+        + (Number.isFinite(outcome.balance) ? ` Balance: ${formatBalance(outcome.balance)}.` : '');
+    case 'known': return `No points this time: ${displayName(other)} was already in your contacts.`;
+    case 'unread': return 'No points: your contacts could not be read to tell whether this one is new.';
+    case 'unsaved': return 'No points: the contact was not saved to the conference database.';
+    case 'no-record': return 'No points: no account on file for the points.';
+    case 'failed': return `The ${points} for this new contact did not go through.`;
+    default: return '';
+  }
 }
 
 /**
