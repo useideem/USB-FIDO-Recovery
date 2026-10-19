@@ -36,6 +36,7 @@ import { join, extname, normalize, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
 import exchange from './api/exchange.js';
+import { matchByDigits, phoneLookupValue } from './api/db.js';
 
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 8080;
@@ -148,12 +149,19 @@ async function handleDb(req, res, url) {
       headers: { ...(body !== undefined && { 'Content-Type': req.headers['content-type'] || 'application/json' }) },
       body
     });
-    const text = await upstream.text();
-    console.log(`[db] ${req.method} ${target} -> ${upstream.status}`);
-    res.writeHead(upstream.status, {
-      'Content-Type': upstream.headers.get('content-type') || 'application/json; charset=utf-8',
-      'Cache-Control': 'no-store'
-    }).end(text);
+    let text = await upstream.text();
+    let status = upstream.status;
+    let type = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
+    // As api/db.js: a phone lookup the upstream could not match as a string is matched on digits against the whole list
+    const phone = status === 404 ? phoneLookupValue(req.method, url.pathname.slice('/db'.length)) : null;
+    const matches = phone ? await matchByDigits(phone, fetch, DB_API) : null;
+    if (matches?.length) {
+      status = 200;
+      text = JSON.stringify(matches);
+      type = 'application/json; charset=utf-8';
+    }
+    console.log(`[db] ${req.method} ${target} -> ${upstream.status}${matches?.length ? ` (matched ${matches.length} by digits)` : ''}`);
+    res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' }).end(text);
   } catch (err) {
     console.error(`[db] ${req.method} ${target} failed: ${err.message}`);
     res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' })

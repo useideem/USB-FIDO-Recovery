@@ -53,6 +53,11 @@
 /** Upstream user API, the same one api/db.js proxies. */
 const DB_API = process.env.DB_API || 'https://sbit.authconcepts.com:3033/api';
 
+// The by-digits match the /db proxy makes when the exact by-phone route 404s
+// (the list the owner loaded on 2026-10-19 holds formatted numbers), here
+// for the contact lookup, which calls the upstream itself.
+import { matchByDigits } from './db.js';
+
 /** How long a code stays valid, in seconds. */
 const TTL_SECONDS = Number(process.env.EXCHANGE_TTL_SECONDS) || 600;
 
@@ -282,10 +287,16 @@ async function lookupContact(userId) {
   if (!digits) return contact;
   try {
     const res = await dbFetch(`/users/phone/${encodeURIComponent(digits)}`);
-    if (res.status === 404) return contact;
-    if (!res.ok) throw new Error(`user lookup returned ${res.status}`);
-    const body = await res.json();
-    const record = Array.isArray(body) ? body[0] : body;
+    let record = null;
+    if (res.status === 404) {
+      // The stored string may be formatted, "(212) 614-6927": the same digit
+      // match the proxy makes, through this function's timed fetch
+      record = (await matchByDigits(digits, dbFetch, ''))?.[0] ?? null;
+    } else {
+      if (!res.ok) throw new Error(`user lookup returned ${res.status}`);
+      const body = await res.json();
+      record = Array.isArray(body) ? body[0] : body;
+    }
     if (!record) return contact;
     return {
       ...contact,
