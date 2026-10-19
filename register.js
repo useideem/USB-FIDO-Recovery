@@ -238,7 +238,12 @@ export function validateAttendee({ firstName, lastName, phone, email, company })
  *   2. PUT /users/:id                when the phone number is already in the
  *      database: an update keeping that record's balance and photo, rather
  *      than a duplicate, which the API would allow.
- *   3. POST /users                   a new record.
+ *   3. POST /users                   a new record, with the registration points.
+ *
+ * No PUT body carries a balance: since 2026-10-19 the API answers 400 ("Use
+ * PATCH on the balance endpoint with amount and partner to change balance")
+ * to one that does, and checks the body before the lookup, so even the
+ * by-badge PUT would fail that way. POST still takes one.
  *
  * email, Company (the API's spelling) and confNumber go in every body. Since
  * 2026-10-14 the API keeps email and Company on a POST, though no read
@@ -266,7 +271,7 @@ export async function saveAttendee({ confNumber, firstName, lastName, phone, ema
     method: 'PUT',
     headers,
     signal: dbSignal(null, WRITE_TIMEOUT_MS),
-    body: JSON.stringify({ ...fields, balance: REGISTRATION_POINTS, photo: null, customAttrib: registrationNote(badge) })
+    body: JSON.stringify({ ...fields, photo: null, customAttrib: registrationNote(badge) })
   }) : { status: 404, ok: false };
 
   let how = 'conf';
@@ -274,7 +279,6 @@ export async function saveAttendee({ confNumber, firstName, lastName, phone, ema
     const existing = await findUserByPhone(phone, fetchImpl);
     const body = {
       ...fields,
-      balance: existing?.balance ?? REGISTRATION_POINTS,
       photo: existing?.photo ?? null,
       customAttrib: registrationNote(badge)
     };
@@ -282,7 +286,8 @@ export async function saveAttendee({ confNumber, firstName, lastName, phone, ema
       method: existing ? 'PUT' : 'POST',
       headers,
       signal: dbSignal(null, WRITE_TIMEOUT_MS),
-      body: JSON.stringify(body)
+      // The balance only on a create: a PUT carrying one is refused (400)
+      body: JSON.stringify(existing ? body : { ...body, balance: REGISTRATION_POINTS })
     });
     if (!res.ok) throw new Error(`${existing ? 'update' : 'create'} returned ${res.status}`);
     how = existing ? 'update' : 'create';

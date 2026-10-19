@@ -162,6 +162,7 @@ which the owner's email gave as the example for that route.
 | `GET /users` | 190 records, **none** carrying `confNumber`, `Company` or `email` |
 | `POST /users` with `confNumber`, `Company`, `email` in the body | 201, but all three come back **`null`** -- the fields are ignored (**changed 2026-10-14**: `Company` and `email` are now stored, `confNumber` still is not; see below) |
 | `PUT /users/:id` and `PUT /users/phone/:phone` with the three fields | 200, all three still **`null`** -- ignored here too |
+| `PUT /users/501` or `PUT /users/conf/CLAUDEPROBE404` with a `balance` in the body (measured 2026-10-19, after the owner's reload) | **400** `{"error":"Use PATCH on the balance endpoint with amount and partner to change balance"}` -- the body is checked before the lookup, so an unknown badge answers 400 rather than 404 when the body carries one; the same body without `balance` answers 200 (the by-id route) or 404 (the unknown badge). `POST /users` still takes `balance`, which is how a created record starts with the registration points |
 | `PUT /users/conf/CLAUDEDOCTEST1` (no record has that number), full body | **404** `{"error":"User not found"}` -- it does not create |
 | `PUT /users/conf/CLAUDEDOCTEST1`, no body | 500 `{"error":"Failed to update user"}` |
 | `PATCH /users/conf/KVNLHY66K2P/balance` `{"amount":5}` | 200, balance 4650 -> 4655 -- **additive**, as §3a |
