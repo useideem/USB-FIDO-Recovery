@@ -46,9 +46,10 @@ Phase 1: TRUST DEVICE
   Device Bound, Passkey. This is a one-time operation per device.
   An attendee starts on the registration page (register.html): the laptop
   camera reads their badge QR and the user database answers with their
-  name, phone and email. A badge the database does not know opens a short
-  form instead (name, phone, email), and Manually Enter User opens that
-  form without a badge; Register adds the attendee. Enroll FIDO Key
+  name, phone and email. A badge the database does not know, or does not
+  answer for within six seconds, opens a short form instead (name, phone,
+  email, company), and Manually Enter User opens that form without a badge,
+  dropping any lookup still running; Register adds the attendee. Enroll FIDO Key
   then writes the phone number onto their key as a discoverable credential
   (key-enroll.js), and a second QR opens the demo
   on their phone with the number already in the User ID field: Login

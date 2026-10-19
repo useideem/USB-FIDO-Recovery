@@ -49,6 +49,17 @@ import { enrollKey, shareEnrollment, detectBrowser, ERROR_HINTS } from './key-en
 const DB_BASE = './db';
 
 /**
+ * How long a read of the user database may take before the page gives up on
+ * it: the badge lookup, and the by-phone check and read-back behind Register.
+ * Added 2026-10-19 after a venue where the lookup hung and the operator had
+ * no way past it. A write gets WRITE_TIMEOUT_MS, longer, and cutting one
+ * short cannot leave a duplicate behind: the retry finds a record the
+ * timed-out create did make by phone number and updates it (saveAttendee).
+ */
+export const DB_TIMEOUT_MS = 6000;
+export const WRITE_TIMEOUT_MS = 15000;
+
+/**
  * Where the QR code sends the attendee's phone. A phone cannot reach this
  * computer's localhost, so a page served from there points at the deployment
  * instead; the credential written here is bound to this hostname, though, so
@@ -83,6 +94,24 @@ const CAMERA_ERRORS = {
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for the test harness)
 // ---------------------------------------------------------------------------
+
+/**
+ * The signal a database call runs under: fires at `timeoutMs`, or sooner
+ * when the caller's own signal does (Manually Enter User cancels the badge
+ * lookup in flight). fetch then rejects with a TimeoutError or an AbortError.
+ */
+export function dbSignal(signal = null, timeoutMs = DB_TIMEOUT_MS) {
+  const timeout = AbortSignal.timeout(timeoutMs);
+  if (!signal) return timeout;
+  return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : timeout;
+}
+
+/** Words a failed database call for the flash: the timeout by its length, the rest as thrown. */
+export function describeDbError(err, timeoutMs = DB_TIMEOUT_MS) {
+  if (err?.name === 'TimeoutError') return `no answer within ${Math.round(timeoutMs / 1000)} seconds`;
+  if (err?.name === 'AbortError') return 'cancelled';
+  return err?.message || String(err);
+}
 
 /**
  * Bare digits of a phone number, the form the key, the database and the
@@ -129,10 +158,12 @@ export function cameraErrorMessage(err) {
  * route is case-insensitive and answers with a single object, unlike the
  * by-phone route, which answers with an array.
  *
+ * Gives up after DB_TIMEOUT_MS (a TimeoutError), or when `signal` fires.
+ *
  * @returns {Promise<object|null>} The record, or null when there is none.
  */
-export async function lookupAttendee(id, fetchImpl = fetch) {
-  const res = await fetchImpl(`${DB_BASE}/users/conf/${encodeURIComponent(id)}`, { cache: 'no-store' });
+export async function lookupAttendee(id, fetchImpl = fetch, { signal = null } = {}) {
+  const res = await fetchImpl(`${DB_BASE}/users/conf/${encodeURIComponent(id)}`, { cache: 'no-store', signal: dbSignal(signal) });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`lookup returned ${res.status}`);
   const body = await res.json();
@@ -143,10 +174,12 @@ export async function lookupAttendee(id, fetchImpl = fetch) {
  * Looks a user up by phone number. The API matches the stored string exactly
  * and answers with an array, so bare digits in, first element out.
  *
+ * Gives up after DB_TIMEOUT_MS (a TimeoutError), or when `signal` fires.
+ *
  * @returns {Promise<object|null>} The record, or null when there is none.
  */
-export async function findUserByPhone(phone, fetchImpl = fetch) {
-  const res = await fetchImpl(`${DB_BASE}/users/phone/${encodeURIComponent(phone)}`, { cache: 'no-store' });
+export async function findUserByPhone(phone, fetchImpl = fetch, { signal = null } = {}) {
+  const res = await fetchImpl(`${DB_BASE}/users/phone/${encodeURIComponent(phone)}`, { cache: 'no-store', signal: dbSignal(signal) });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`lookup returned ${res.status}`);
   const body = await res.json();
@@ -210,6 +243,11 @@ export function validateAttendee({ firstName, lastName, phone, email, company })
  * has no badge, so for it `byBadge` is always false and only steps 2 and 3
  * run.
  *
+ * Nothing here waits forever (2026-10-19): the reads give up at
+ * DB_TIMEOUT_MS and the writes at WRITE_TIMEOUT_MS. A create cut short may
+ * still have landed, which is why the retry's by-phone check runs first and
+ * turns such a create into an update.
+ *
  * @returns {Promise<{ how: 'conf'|'update'|'create', byBadge: boolean, record: object }>}
  */
 export async function saveAttendee({ confNumber, firstName, lastName, phone, email, company }, fetchImpl = fetch) {
@@ -220,6 +258,7 @@ export async function saveAttendee({ confNumber, firstName, lastName, phone, ema
   const byConf = badge ? await fetchImpl(`${DB_BASE}/users/conf/${encodeURIComponent(badge)}`, {
     method: 'PUT',
     headers,
+    signal: dbSignal(null, WRITE_TIMEOUT_MS),
     body: JSON.stringify({ ...fields, balance: demoBalance(), photo: null, customAttrib: registrationNote(badge) })
   }) : { status: 404, ok: false };
 
@@ -235,6 +274,7 @@ export async function saveAttendee({ confNumber, firstName, lastName, phone, ema
     const res = await fetchImpl(existing ? `${DB_BASE}/users/${existing.userId}` : `${DB_BASE}/users`, {
       method: existing ? 'PUT' : 'POST',
       headers,
+      signal: dbSignal(null, WRITE_TIMEOUT_MS),
       body: JSON.stringify(body)
     });
     if (!res.ok) throw new Error(`${existing ? 'update' : 'create'} returned ${res.status}`);
@@ -262,6 +302,7 @@ let scanTimer = null;     // the decode loop's pending timeout
 let decoder = null;       // { name, decode(video) } once chosen
 let pendingBadge = null;  // the badge ID the open form is for; null for a manual entry
 let currentAttendee = null;  // { phone, firstName, lastName, displayName } the key step is for
+let lookup = null;           // { id, controller } while a badge lookup is in flight
 
 function showFlash(message, state, duration = 6000) {
   const el = $('flash-status');
@@ -400,20 +441,38 @@ function stopScan() {
   $('manual-entry-btn').hidden = false;
 }
 
-/** The value a scan (or the typed fallback) produced: look it up and show it. */
+/**
+ * The value a scan produced: look it up and show it. The lookup gives up at
+ * DB_TIMEOUT_MS, and a database that does not answer, or answers with an
+ * error, opens the form for the badge just as a clean "not found" does, so
+ * the operator is never left with an error and no way on (2026-10-19, after
+ * a venue where the lookup hung). Manually Enter User or a newer scan
+ * cancels the lookup in flight, and a cancelled lookup touches nothing on
+ * its way out: before, its late answer reset the manual form the operator
+ * was typing into, or put an error over it.
+ */
 async function handleScanned(value) {
   const id = String(value).trim();
   if (!id) return;
+  cancelLookup();
+  const mine = { id, controller: new AbortController() };
+  lookup = mine;
   clearResult();
-  showFlash(`Looking up ${id}...`, 'info', 0);
+  showFlash(`Looking up badge ${id}... Press Manually Enter User to skip the wait.`, 'info', 0);
 
   let record;
   try {
-    record = await lookupAttendee(id);
+    record = await lookupAttendee(id, fetch, { signal: mine.controller.signal });
   } catch (err) {
-    showFlash(`The user database could not be reached (${err.message}). Press Register to try again.`, 'failure', 0);
+    if (lookup !== mine) return;  // cancelled: something else owns the screen now
+    lookup = null;
+    $('register-btn').textContent = 'Scan another badge';
+    showFlash(`The user database did not answer for badge ${id} (${describeDbError(err)}). Fill in the details below to register it.`, 'failure', 0);
+    showNewAttendeeForm(id, 'unanswered');
     return;
   }
+  if (lookup !== mine) return;
+  lookup = null;
   $('register-btn').textContent = 'Scan another badge';
   if (!record) {
     showFlash(`No attendee has the badge ID ${id}. Fill in the details below to register it.`, 'info', 0);
@@ -425,16 +484,25 @@ async function handleScanned(value) {
   showAttendee(record, id);
 }
 
+/** Drops the badge lookup in flight, if any; its answer is then ignored. */
+function cancelLookup() {
+  lookup?.controller.abort();
+  lookup = null;
+}
+
 /**
- * Offers the form, empty: for a badge ID the database does not know, or with
- * no badge at all after Manually Enter User.
+ * Offers the form, empty: for a badge ID the database does not know, for one
+ * it did not answer for (`reason` 'unanswered'), or with no badge at all
+ * after Manually Enter User.
  */
-function showNewAttendeeForm(id = null) {
+function showNewAttendeeForm(id = null, reason = 'unknown') {
   pendingBadge = id || null;
   $('new-attendee-title').textContent = pendingBadge ? 'Step 2: Register this badge' : 'Step 2: Enter your details';
-  $('new-attendee-hint').textContent = pendingBadge
-    ? `Nobody in the user database has badge ID ${pendingBadge}. Fill in the details and press Register to add them.`
-    : 'Fill in the details and press Register to add them. The phone number becomes the User ID.';
+  $('new-attendee-hint').textContent = !pendingBadge
+    ? 'Fill in the details and press Register to add them. The phone number becomes the User ID.'
+    : reason === 'unanswered'
+      ? `The user database did not answer for badge ID ${pendingBadge}. Fill in the details and press Register to add them; a record it already holds for the phone number is updated, not duplicated.`
+      : `Nobody in the user database has badge ID ${pendingBadge}. Fill in the details and press Register to add them.`;
   $('new-attendee-form').reset();
   $('new-attendee-section').hidden = false;
   $('new-first-name').focus();
@@ -464,7 +532,7 @@ async function registerAttendee() {
   try {
     saved = await saveAttendee({ confNumber: id, ...checked.record });
   } catch (err) {
-    showFlash(`The user database refused the registration (${err.message}). Check the details and press Register again.`, 'failure', 0);
+    showFlash(`The user database did not take the registration (${describeDbError(err, WRITE_TIMEOUT_MS)}). Check the details and press Register again.`, 'failure', 0);
     return;
   } finally {
     btn.classList.remove('loading');
@@ -629,9 +697,11 @@ document.addEventListener('DOMContentLoaded', () => {
     showFlash('Scan cancelled', 'info');
   });
 
-  // No badge: straight to the form, with nothing to look up
+  // No badge: straight to the form, with nothing to look up, and a lookup
+  // still running for the last badge dropped so it cannot come back over it
   $('manual-entry-btn').addEventListener('click', () => {
     stopScan();
+    cancelLookup();
     clearResult();
     clearFlash();
     showNewAttendeeForm(null);
