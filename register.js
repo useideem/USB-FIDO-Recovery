@@ -186,10 +186,17 @@ export async function findUserByPhone(phone, fetchImpl = fetch, { signal = null 
   return Array.isArray(body) ? body[0] ?? null : body;
 }
 
-/** A plausible balance for a new demo account, since the form never asks for one. */
-export function demoBalance() {
-  return Math.round((500 + Math.random() * 9000) * 100) / 100;
-}
+/**
+ * Registering earns 50 points (the owner's rule, 2026-10-19): a record this
+ * page creates starts with them, and a record already there at exactly 0
+ * (the list the owner loads starts everyone at 0) is credited them the first
+ * time it is put on screen, by creditRegistration. Until that day a new
+ * record got a random 500 to 9,500.
+ */
+export const REGISTRATION_POINTS = 50;
+
+/** The partner string the balance route requires: free text nothing reads back (docs/user-api.md 3a). */
+export const REGISTRATION_PARTNER = 'REGISTRATION';
 
 /** What the record carries about where it came from; the API does keep this field. */
 function registrationNote(confNumber) {
@@ -259,7 +266,7 @@ export async function saveAttendee({ confNumber, firstName, lastName, phone, ema
     method: 'PUT',
     headers,
     signal: dbSignal(null, WRITE_TIMEOUT_MS),
-    body: JSON.stringify({ ...fields, balance: demoBalance(), photo: null, customAttrib: registrationNote(badge) })
+    body: JSON.stringify({ ...fields, balance: REGISTRATION_POINTS, photo: null, customAttrib: registrationNote(badge) })
   }) : { status: 404, ok: false };
 
   let how = 'conf';
@@ -267,7 +274,7 @@ export async function saveAttendee({ confNumber, firstName, lastName, phone, ema
     const existing = await findUserByPhone(phone, fetchImpl);
     const body = {
       ...fields,
-      balance: existing?.balance ?? demoBalance(),
+      balance: existing?.balance ?? REGISTRATION_POINTS,
       photo: existing?.photo ?? null,
       customAttrib: registrationNote(badge)
     };
@@ -288,6 +295,40 @@ export async function saveAttendee({ confNumber, firstName, lastName, phone, ema
   const stored = badge ? await lookupAttendee(badge, fetchImpl) : null;
   const record = stored ?? (await findUserByPhone(phone, fetchImpl)) ?? { ...fields };
   return { how, byBadge: !!stored, record };
+}
+
+/**
+ * The 50 points for registering, credited once: only to a record whose
+ * balance is exactly 0, through the additive balance route (PATCH
+ * /users/:id/balance { amount, partner }, docs/user-api.md 3a). The zero is
+ * the once-only marker: a record this page creates starts at 50, a record
+ * credited before is not at 0, so a rescan credits nothing, and no marker
+ * on the laptop is needed. Never throws: a refused or unanswered PATCH is
+ * reported, and the next scan, finding the balance still 0, tries again.
+ *
+ * @returns {Promise<{ credited: boolean, balance: number|null, reason: string }>}
+ *   reason is 'credited', 'has-points' (nothing to do), 'no-record' (no
+ *   integer userId on the record), or the API's error text.
+ */
+export async function creditRegistration(record, fetchImpl = fetch) {
+  if (!Number.isInteger(record?.userId)) return { credited: false, balance: null, reason: 'no-record' };
+  const balance = Number(record.balance);
+  if (balance !== 0) return { credited: false, balance: Number.isFinite(balance) ? balance : null, reason: 'has-points' };
+  try {
+    const res = await fetchImpl(`${DB_BASE}/users/${record.userId}/balance`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      signal: dbSignal(null, WRITE_TIMEOUT_MS),
+      body: JSON.stringify({ amount: REGISTRATION_POINTS, partner: REGISTRATION_PARTNER })
+    });
+    let body = {};
+    try { body = await res.json(); } catch (_) { /* no JSON body */ }
+    if (!res.ok) return { credited: false, balance: 0, reason: body.error || `balance PATCH returned ${res.status}` };
+    const after = Number(body.user?.balance ?? body.balance);
+    return { credited: true, balance: Number.isFinite(after) ? after : REGISTRATION_POINTS, reason: 'credited' };
+  } catch (err) {
+    return { credited: false, balance: 0, reason: describeDbError(err, WRITE_TIMEOUT_MS) };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -482,12 +523,28 @@ async function handleScanned(value) {
 
   showFlash(`Found ${attendeeName(record)}`, 'success');
   showAttendee(record, id);
+  await awardRegistration(record, `Found ${attendeeName(record)}`);
 }
 
 /** Drops the badge lookup in flight, if any; its answer is then ignored. */
 function cancelLookup() {
   lookup?.controller.abort();
   lookup = null;
+}
+
+/** Credits the registration points when they are due and says what the account holds. */
+async function awardRegistration(record, prefix) {
+  const result = await creditRegistration(record);
+  const pts = balance => `${Math.floor(balance)} pts`;
+  if (result.credited) {
+    showFlash(`${prefix}. +${REGISTRATION_POINTS} points for registering (${pts(result.balance)}).`, 'success', 10000);
+  } else if (result.reason === 'has-points') {
+    showFlash(`${prefix}. ${result.balance === null ? 'Balance not read' : pts(result.balance) + ' on the account'}.`, 'success', 10000);
+  } else if (result.reason === 'no-record') {
+    showFlash(`${prefix}.`, 'success');
+  } else {
+    showFlash(`${prefix}. The ${REGISTRATION_POINTS} registration points were not credited (${result.reason}); scan the badge again to retry.`, 'failure', 0);
+  }
 }
 
 /**
@@ -558,6 +615,7 @@ async function registerAttendee() {
     ? 'The user database has no field for the badge ID, so scanning this badge again will not find this record; the demo only needs the phone number.'
     : '';
   showAttendee(record, id, [kept, badgeNote].filter(Boolean).join(' '));
+  await awardRegistration(record, `Registered ${attendeeName(record)}`);
 }
 
 /** Fills the details section and, when the record has a number, offers the key step. */
