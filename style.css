@@ -1077,6 +1077,12 @@ a.btn {
   border-radius: var(--radius-md);
 }
 
+/* The second button is in the markup for one guide only (KEY_SKIP_GUIDE);
+   hidden has to win over the button's own display */
+.popup-buttons .btn[hidden] {
+  display: none;
+}
+
 /* ===== Keyframe Animations ===== */
 
 @keyframes btn-spin {

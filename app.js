@@ -16,7 +16,11 @@
  *                       match the box, a second dialog handing over to the
  *                       passkey, enroll() with Passkeys+, then the simulated
  *                       SNA number check (sna.js) and its four indicators:
- *                       USB Key, Phone# Verified, Device Bound, Passkey
+ *                       USB Key, Phone# Verified, Device Bound, Passkey.
+ *                       A key that does not answer (a password manager in
+ *                       front of the prompt, a cancel) asks whether to go
+ *                       on without it: yes goes straight to the passkey and
+ *                       the USB Key pill reads false (since 2026-10-19)
  *   2. Actions       -- the balance in points, then a step-up authenticate()
  *                       per protected action; Authenticate adds 25 points
  *                       the first time, then shows 0. A login lasts 36
@@ -204,10 +208,40 @@ const KEY_VERIFIED_GUIDE = {
   lead: PASSKEY_GUIDE.title
 };
 
+/**
+ * The key did not answer (since 2026-10-19, the owner's request for the
+ * conference: a password manager stepping in front of the security-key
+ * prompt and answering with a passkey, a cancelled sheet, or a key that
+ * holds nothing for this site). The attendee chooses: on without the key,
+ * which is the passkey and the number check as usual with the USB Key pill
+ * red; or the key again. The tap on either button is the user gesture the
+ * next WebAuthn prompt needs. keySkipGuide words the lead for the failure.
+ */
+const KEY_SKIP_GUIDE = {
+  title: "The USB FIDO Key didn't answer",
+  button: 'Continue without the USB Key',
+  alt: 'Try the key again'
+};
+
+/** KEY_SKIP_GUIDE with its lead worded for the failure the key get returned. */
+function keySkipGuide(error) {
+  const name = error?.name || '';
+  const message = error?.message || '';
+  const what = /platform passkey/.test(message)
+    ? 'A passkey answered instead of the key. A password manager may be stepping in front of the security-key prompt.'
+    : name === 'NotAllowedError'
+      ? 'The prompt was cancelled or timed out, or this key holds nothing for this site.'
+      : message || 'The key could not be read.';
+  return {
+    ...KEY_SKIP_GUIDE,
+    lead: `${what} You can go on without it: the passkey and the number check still run, and the USB Key indicator will show it was skipped.`
+  };
+}
+
 let guideResolve = null;
 let guidePreviousFocus = null;
 
-function showGuide({ title, lead = '', steps = [], note = '', button = 'Continue' }) {
+function showGuide({ title, lead = '', steps = [], note = '', button = 'Continue', alt = '' }) {
   return new Promise((resolve) => {
     const $ = (id) => document.getElementById(id);
     guidePreviousFocus = document.activeElement;
@@ -224,6 +258,8 @@ function showGuide({ title, lead = '', steps = [], note = '', button = 'Continue
     $('guide-note').textContent = note;
     $('guide-note').hidden = !note;
     $('guide-start').textContent = button;
+    $('guide-alt').textContent = alt;
+    $('guide-alt').hidden = !alt;
     $('guide-popup').style.display = 'flex';
     guideResolve = resolve;
     $('guide-start').focus();
@@ -235,9 +271,11 @@ function guideKeyHandler(e) {
   if (e.key === 'Escape') {
     hideGuide('cancel');
   } else if (e.key === 'Tab') {
-    // One button: focus stays on it
+    // Focus stays inside the dialog: on the one button, or between the two
     e.preventDefault();
-    document.getElementById('guide-start').focus();
+    const start = document.getElementById('guide-start');
+    const alt = document.getElementById('guide-alt');
+    (document.activeElement === start && !alt.hidden ? alt : start).focus();
   }
 }
 
@@ -1152,15 +1190,18 @@ function renderSnaStep(index, step, status) {
  * the passkey holds markers that say the opposite, `boundFromPasskey` and
  * `carriedOver`, and reads false on both, so the pills tell the truth about
  * a private tab: the login stands, but neither of those happened here (the
- * owner's request, 2026-10-18). `keyMarker` separates that false from the
- * unknown of a device that never wrote a key marker at all.
+ * owner's request, 2026-10-18). A device bound without the key
+ * (`boundWithoutKey`, the attendee's choice when the key did not answer,
+ * 2026-10-19) reads false on the key the same way. `keyMarker` separates
+ * that false from the unknown of a device that never wrote a key marker at
+ * all.
  */
 function localMarkerStates(user) {
   const key = user ? getLocalEnrollmentMarker(user) : null;
   const number = user ? getNumberVerification(user) : null;
   return {
     keyMarker: !!key,
-    keyHere: !!key && !key.boundFromPasskey,
+    keyHere: !!key && !key.boundFromPasskey && !key.boundWithoutKey,
     numberHere: !!number && !number.carriedOver
   };
 }
@@ -1261,7 +1302,8 @@ async function refreshPills(user) {
 
   // The four indicators the enrollment ends on: USB Key (local marker:
   // true when the key vouched here, false when a passkey rebinding stood in
-  // for it, unknown when this device never wrote one), Phone# Verified (the
+  // for it or the attendee went on without it, unknown when this device
+  // never wrote one), Phone# Verified (the
   // SNA marker: true when the check ran here, false when carried over or
   // never run), Device Bound (the ZSM credential), Passkey (the Passkeys+
   // credential).
@@ -1334,7 +1376,7 @@ async function updateUI() {
 // of the guide, one SDK call), the local key marker, the number check (step
 // 4), then the actions screen.
 // ---------------------------------------------------------------------------
-async function bindDevice(user) {
+async function bindDevice(user, { keySkipped = false, keyError = '' } = {}) {
   showFlash('flash-status', 'Creating your passkey and binding this device...', 'success');
   await initializeZSMClient(user);
   const enrollResult = await enroll(user, true);
@@ -1343,11 +1385,12 @@ async function bindDevice(user) {
     return false;
   }
 
-  // The local enrollment marker, so the USB Key pill shows 'true'
-  localStorage.setItem(ENROLLMENT_MARKER_PREFIX + user, JSON.stringify({
-    boundFromRemote: true,
-    createdAt: new Date().toISOString()
-  }));
+  // The local enrollment marker: the USB Key pill reads it as 'true', or as
+  // 'false' when the attendee went on without the key (boundWithoutKey, with
+  // the error the get returned, since 2026-10-19)
+  localStorage.setItem(ENROLLMENT_MARKER_PREFIX + user, JSON.stringify(keySkipped
+    ? { boundWithoutKey: true, keyError, createdAt: new Date().toISOString() }
+    : { boundFromRemote: true, createdAt: new Date().toISOString() }));
 
   // The simulated SNA number check, ending on the four indicators
   if (!(await ensureNumberVerified(user))) {
@@ -1357,7 +1400,7 @@ async function bindDevice(user) {
   }
 
   STATE.loginID = user;
-  showFlash('flash-status', 'Device bound successfully', 'success');
+  showFlash('flash-status', keySkipped ? 'Device bound (without the USB key)' : 'Device bound successfully', 'success');
   await updateUI();
   return true;
 }
@@ -1419,7 +1462,10 @@ async function bindWithPasskey(user) {
 // different person stops the flow, a different spelling of the same number is
 // adopted); a second dialog hands over to the passkey; and bindDevice does
 // the ZSM + Passkeys+ enroll and the number check. A suspended device asks
-// the key, then reactivates with the passkey, with no dialog.
+// the key, then reactivates with the passkey, with no dialog. A key that
+// does not answer on an unbound device asks whether to go on without it
+// (KEY_SKIP_GUIDE, since 2026-10-19): yes binds without the key, the marker
+// says so and the USB Key pill reads false; a mismatch still stops.
 // ---------------------------------------------------------------------------
 async function login(btn = document.getElementById('login-btn')) {
   let user = getUsername();  // replaced by the key's own spelling when the key is asked
@@ -1500,17 +1546,39 @@ async function login(btn = document.getElementById('login-btn')) {
     }
 
     // Step 3: the key. A discoverable get, so whichever key is present
-    // answers with the identity it holds.
-    showFlash('flash-status',
-      suspended ? 'Device suspended. Touch your USB key to reactivate...' : 'Touch your USB key...',
-      'success', 60000);
-    const ishieldResult = await webauthnAuthenticate(user);
-    if (!ishieldResult.success) {
+    // answers with the identity it holds. On an unbound device a key that
+    // does not answer is not the end (since 2026-10-19): the attendee is
+    // asked whether to go on without it (straight to the passkey, the USB
+    // Key pill red) or try again; the tap on either button is the gesture
+    // the next prompt needs. A bound (suspended) device keeps the stop: the
+    // key is what reactivates it.
+    let ishieldResult;
+    let keySkipped = false;
+    for (;;) {
       showFlash('flash-status',
-        ishieldResult.error?.name === 'NotAllowedError'
-          ? 'Cancelled, timed out, or nothing on this key for this site yet. Enroll the key on the registration page first.'
-          : ishieldResult.error?.message || 'USB key authentication failed',
-        'failure', 6000);
+        suspended ? 'Device suspended. Touch your USB key to reactivate...' : 'Touch your USB key...',
+        'success', 60000);
+      ishieldResult = await webauthnAuthenticate(user);
+      if (ishieldResult.success) break;
+      if (hasLocalZSM) {
+        showFlash('flash-status',
+          ishieldResult.error?.name === 'NotAllowedError'
+            ? 'Cancelled, timed out, or nothing on this key for this site yet. Enroll the key on the registration page first.'
+            : ishieldResult.error?.message || 'USB key authentication failed',
+          'failure', 6000);
+        return;
+      }
+      const choice = await showGuide(keySkipGuide(ishieldResult.error));
+      if (choice === 'alt') continue;
+      if (choice !== 'ok') return;
+      keySkipped = true;
+      break;
+    }
+    if (keySkipped) {
+      // No key, so no identity to reconcile: the typed User ID stands, and
+      // the binding records that the key was skipped
+      showFlash('flash-status', 'Continuing without the USB key...', 'success');
+      await bindDevice(user, { keySkipped: true, keyError: ishieldResult.error?.name || 'failed' });
       return;
     }
     // Step 4: the User ID on screen has to be the credential the key holds.
@@ -1770,8 +1838,9 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('popup-continue').addEventListener('click', () => hidePopup('continue'));
   document.getElementById('popup-cancel').addEventListener('click', () => hidePopup('cancel'));
 
-  // The guide dialog's one button
+  // The guide dialog's button, and the second one KEY_SKIP_GUIDE shows
   document.getElementById('guide-start').addEventListener('click', () => hideGuide('ok'));
+  document.getElementById('guide-alt').addEventListener('click', () => hideGuide('alt'));
 
   // Restore username from localStorage
   const savedUsername = localStorage.getItem('username');

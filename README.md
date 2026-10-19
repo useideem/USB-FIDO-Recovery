@@ -373,6 +373,8 @@ In the demo, the attendee's iShield USB key is written at the registration page 
 ```
 First Enter Game (binding):
   1. webauthnAuthenticate(user) -- touch iShield USB key; its user handle must match the User ID
+     (a key that does not answer offers Continue without the USB Key: the
+      binding goes on and the USB Key indicator reads false)
   2. enroll(user, true)         -- register ZSM + Passkeys+
   3. verifyNumber(user)         -- the simulated carrier check (sna.js)
 

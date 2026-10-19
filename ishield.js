@@ -88,9 +88,10 @@ export function hasLocalEnrollmentMarker(user) {
 /**
  * The enrollment marker itself, parsed, or null when this device holds none
  * for the user (or holds one it cannot read). The demo page reads its
- * `boundFromPasskey` flag: a marker written by a passkey rebinding rather
- * than by the key, so the USB Key pill can say the key never vouched in this
- * browser (since 2026-10-18).
+ * `boundFromPasskey` flag (a marker written by a passkey rebinding rather
+ * than by the key, since 2026-10-18) and its `boundWithoutKey` flag (the
+ * attendee went on without a key that did not answer, since 2026-10-19), so
+ * the USB Key pill can say the key never vouched in this browser.
  *
  * @param {string} user - The username to check.
  * @returns {object|null}

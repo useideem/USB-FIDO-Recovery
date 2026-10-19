@@ -184,7 +184,9 @@
   <!-- Guide dialog: what Enter Game is about to do on a phone that is not
        bound yet, and the handoff from the USB key to the passkey. One
        button; its tap is also the user gesture the WebAuthn prompt that
-       follows needs. app.js fills it from ONBOARDING_GUIDE and PASSKEY_GUIDE. -->
+       follows needs. app.js fills it from ONBOARDING_GUIDE and PASSKEY_GUIDE.
+       The second button shows only for KEY_SKIP_GUIDE (a key that did not
+       answer: continue without it, or try again; since 2026-10-19). -->
   <div id="guide-popup" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="guide-title">
     <div class="popup-card">
       <p id="guide-title" class="popup-title"></p>
@@ -193,6 +195,7 @@
       <p id="guide-note" class="popup-note" hidden></p>
       <div class="popup-buttons">
         <button id="guide-start" class="btn btn-primary">Start</button>
+        <button id="guide-alt" class="btn btn-secondary" hidden>Try the key again</button>
       </div>
     </div>
   </div>
