@@ -187,13 +187,14 @@ export async function findUserByPhone(phone, fetchImpl = fetch, { signal = null 
 }
 
 /**
- * Registering earns 50 points (the owner's rule, 2026-10-19): a record this
- * page creates starts with them, and a record already there at exactly 0
- * (the list the owner loads starts everyone at 0) is credited them the first
- * time it is put on screen, by creditRegistration. Until that day a new
- * record got a random 500 to 9,500.
+ * Registering earns 500 points (the owner's rule: 50 on 2026-10-19, 500 since
+ * 2026-10-20, the evening the owner set every record then in the list to
+ * 500): a record this page creates starts with them, and a record already
+ * there at exactly 0 (a freshly loaded list starts everyone at 0) is credited
+ * them the first time it is put on screen, by creditRegistration. Until
+ * 2026-10-19 a new record got a random 500 to 9,500.
  */
-export const REGISTRATION_POINTS = 50;
+export const REGISTRATION_POINTS = 500;
 
 /** The partner string the balance route requires: free text nothing reads back (docs/user-api.md 3a). */
 export const REGISTRATION_PARTNER = 'REGISTRATION';
@@ -303,10 +304,10 @@ export async function saveAttendee({ confNumber, firstName, lastName, phone, ema
 }
 
 /**
- * The 50 points for registering, credited once: only to a record whose
+ * The registration points, credited once: only to a record whose
  * balance is exactly 0, through the additive balance route (PATCH
  * /users/:id/balance { amount, partner }, docs/user-api.md 3a). The zero is
- * the once-only marker: a record this page creates starts at 50, a record
+ * the once-only marker: a record this page creates starts with them, a record
  * credited before is not at 0, so a rescan credits nothing, and no marker
  * on the laptop is needed. Never throws: a refused or unanswered PATCH is
  * reported, and the next scan, finding the balance still 0, tries again.
