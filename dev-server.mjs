@@ -9,21 +9,14 @@
  * phones reaching this machine through a tunnel -- be read from one file.
  *
  * It also keeps a shared list of issued credentials in
- * .dev-logs/credentials.json, standing in for the demo's future backend:
+ * .dev-logs/credentials.json, which the registration page and the key tester
+ * post to and the tester reads back:
  *   POST /credentials           store { id, rpId, userName, publicKey, ... }
  *   GET  /credentials?rpId=...  list the credentials issued for that RP ID
  *
- * It proxies /db/* to the Ideem user API. That API sends no CORS headers,
- * so a page cannot call it from the browser; going through this server's
- * own origin sidesteps that. Vercel does the same thing in production, so
- * pages fetch the same relative /db/... path either way.
- *
- * Finally it mounts the P2P Contact Exchange function (api/exchange.js) at
- * /api/exchange, the path Vercel gives it, so the exchange works locally
- * with records held in this process.
- *
- * Local testing only; Vercel serves the static files in production and
- * /log simply isn't there.
+ * Local testing only; Vercel serves the static files in production and the
+ * two endpoints simply aren't there. Nothing else is proxied: the app has no
+ * backend of its own.
  *
  * USAGE:
  *   node dev-server.mjs          # http://localhost:8080
@@ -35,17 +28,11 @@ import { readFile, writeFile, appendFile, mkdir } from 'fs/promises';
 import { join, extname, normalize, dirname } from 'path';
 import { fileURLToPath } from 'url';
 
-import exchange from './api/exchange.js';
-import { matchByDigits, phoneLookupValue } from './api/db.js';
-
 const ROOT = dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT) || 8080;
 const LOG_FILE = join(ROOT, '.dev-logs', 'fido-test.jsonl');
 const CREDS_FILE = join(ROOT, '.dev-logs', 'credentials.json');
 const MAX_LOG_BYTES = 256 * 1024;
-
-/** Where /db/* is forwarded. The same upstream Vercel rewrites to. */
-const DB_API = process.env.DB_API || 'https://sbit.authconcepts.com:3033/api';
 
 const CONTENT_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -124,80 +111,6 @@ async function handleCredentials(req, res, url) {
   }
 }
 
-/**
- * Forwards /db/<path> to the user API and returns its answer verbatim.
- * The upstream sends no Access-Control-Allow-Origin, so the browser refuses
- * to call it directly; from here it is same-origin and the question never
- * comes up. Nothing is cached, and no credentials are attached.
- */
-async function handleDb(req, res, url) {
-  const target = DB_API + url.pathname.slice('/db'.length) + url.search;
-  let body;
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    body = '';
-    for await (const chunk of req) {
-      body += chunk;
-      if (body.length > MAX_LOG_BYTES) {
-        res.writeHead(413).end();
-        return;
-      }
-    }
-  }
-  try {
-    const upstream = await fetch(target, {
-      method: req.method,
-      headers: { ...(body !== undefined && { 'Content-Type': req.headers['content-type'] || 'application/json' }) },
-      body
-    });
-    let text = await upstream.text();
-    let status = upstream.status;
-    let type = upstream.headers.get('content-type') || 'application/json; charset=utf-8';
-    // As api/db.js: a phone lookup the upstream could not match as a string is matched on digits against the whole list
-    const phone = status === 404 ? phoneLookupValue(req.method, url.pathname.slice('/db'.length)) : null;
-    const matches = phone ? await matchByDigits(phone, fetch, DB_API) : null;
-    if (matches?.length) {
-      status = 200;
-      text = JSON.stringify(matches);
-      type = 'application/json; charset=utf-8';
-    }
-    console.log(`[db] ${req.method} ${target} -> ${upstream.status}${matches?.length ? ` (matched ${matches.length} by digits)` : ''}`);
-    res.writeHead(status, { 'Content-Type': type, 'Cache-Control': 'no-store' }).end(text);
-  } catch (err) {
-    console.error(`[db] ${req.method} ${target} failed: ${err.message}`);
-    res.writeHead(502, { 'Content-Type': 'application/json; charset=utf-8' })
-      .end(JSON.stringify({ error: 'Upstream user API unreachable', detail: err.message }));
-  }
-}
-
-/**
- * Runs the P2P Contact Exchange function in-process. It is written against
- * the web Request/Response pair Vercel hands it, so this only bridges Node's
- * req/res to that. Without Redis configured it keeps its records in a Map,
- * which in this single process is exactly right.
- */
-async function handleExchange(req, res, url) {
-  let body;
-  if (req.method !== 'GET' && req.method !== 'HEAD') {
-    body = '';
-    for await (const chunk of req) {
-      body += chunk;
-      if (body.length > MAX_LOG_BYTES) {
-        res.writeHead(413).end();
-        return;
-      }
-    }
-  }
-  const request = new Request(`http://localhost:${PORT}${url.pathname}${url.search}`, {
-    method: req.method,
-    headers: { 'Content-Type': req.headers['content-type'] || 'application/json' },
-    body
-  });
-  const response = await exchange.fetch(request);
-  const text = await response.text();
-  console.log(`[exchange] ${req.method} ${url.pathname}${url.search} -> ${response.status}`);
-  res.writeHead(response.status, Object.fromEntries(response.headers)).end(text);
-}
-
 async function handleStatic(req, res) {
   const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
   const relative = normalize(path === '/' ? '/index.html' : path).replace(/^([/\\])+/, '');
@@ -222,13 +135,6 @@ createServer((req, res) => {
   if (req.method === 'POST' && url.pathname === '/log') return handleLog(req, res);
   if (url.pathname === '/credentials' && (req.method === 'GET' || req.method === 'POST')) {
     return handleCredentials(req, res, url);
-  }
-  if (url.pathname === '/db' || url.pathname.startsWith('/db/')) return handleDb(req, res, url);
-  if (url.pathname === '/api/exchange') return handleExchange(req, res, url);
-  if (url.pathname === '/enroll.html') {
-    // The retired booth page. vercel.json carries the same redirect; change the two together.
-    res.writeHead(307, { Location: '/register.html' }).end();
-    return;
   }
   if (req.method === 'GET' || req.method === 'HEAD') return handleStatic(req, res);
   res.writeHead(405).end();

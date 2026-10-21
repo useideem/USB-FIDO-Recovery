@@ -1,7 +1,7 @@
 {
-  "application_id": "ad9bf691-5803-4752-9f35-51f29ab8d58b",
-  "api_key": "0f7fdf8e-db1c-4370-88ae-f93078bfb974",
-  "server_key": "0f7fdf8e-db1c-4370-88ae-f93078bfb974",
+  "application_id": "9215506b-7b6c-4bdf-aa88-fe49574dc530",
+  "api_key": "2286471e-a6f2-4ac4-9dd1-8cca2b2ccae2",
+  "server_key": "2286471e-a6f2-4ac4-9dd1-8cca2b2ccae2",
   "validate_url": "https://zsm-authenticator-demo.useideem.com/api/pkp/validate-token",
   "region": "demo"
 }

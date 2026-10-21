@@ -1,39 +1,28 @@
 /**
- * register.js -- Badge registration: scan a badge, look the attendee up, hand
- * their number to the demo on their own phone
+ * register.js -- Registration page: write a phone number onto a FIDO USB key
  *
- * Register opens this computer's camera and decodes frames until a QR code is
- * read. The code on a conference badge is the attendee's confirmation number,
- * which the user API resolves to a record (GET /users/conf/:confNumber, see
- * docs/user-api.md section 3b): first name, last name, phone, email, company.
- * Those go on screen. Enroll FIDO Key then writes the phone number, as bare digits,
- * onto the inserted key as a discoverable credential (key-enroll.js: the
- * measured create the key tester defaults to), and only then does a second
- * QR code appear, pointing at the demo with ?userid=<digits>. The attendee
- * scans that with their phone, lands on the LOGIN screen with the number in
- * the User ID field, presses Login, and the get reads the number back off the
- * key: ZSM + Passkeys+ enrollment and the number check follow.
+ * One box and one button. The phone number, as bare digits, goes onto the
+ * inserted key as a discoverable, PIN-protected credential (key-enroll.js),
+ * and the page then shows a QR code and a link that open the main page with
+ * that number already in the User ID box. The user's phone takes it from
+ * there: the key touch, the number check, the passkey.
  *
- * A badge the database does not know opens a form instead: first name, last
- * name, phone, email, company, and a Register button that adds the attendee (see
- * saveAttendee for what the API keeps) and then carries on exactly as for a
- * known badge. Manually Enter User opens the same form with no badge at all,
- * for an attendee without one or a badge that will not scan.
+ * This is also how a replacement key is made when one is lost: enroll the
+ * new key with the same number here, and the main page's "Associate new
+ * FIDO key" reads it. The new credential has its own key pair; only the
+ * number is the same.
  *
- * This page replaced the booth page (enroll.html, retired 2026-10-12), which
- * took a typed name and number; its URL now redirects here. The ending is the
- * one it had: the number on a key, and the login path on the phone.
+ * There is no database and no SDK here. Nothing leaves the page except the
+ * credential record the dev server keeps for the key tester (absent in
+ * production).
  *
- * DECODING: Chromium ships a BarcodeDetector backed by the platform (Vision
- * on macOS), which is used when it reports QR support. Safari has none, so
- * the vendored jsQR (window.jsQR, loaded by register.html as a classic
- * script) decodes a downscaled copy of each frame instead. The loop runs on
- * a timer rather than every animation frame; six or seven decodes a second
- * is plenty for a badge held still.
- *
- * THE WRITES are the registration of an unknown badge (to the user database)
- * and the credential (to the key). The camera stream is stopped the moment a
- * code is decoded, and no frame leaves the page.
+ * THE BROWSER MATTERS. The create requires user verification, so the browser
+ * drives the key's PIN: entering it, or setting one on a key that has none.
+ * Safari on a Mac is the measured browser for the create; desktop Chrome
+ * insists on a PIN for a discoverable credential anyway, which is now what
+ * is asked for, but its PIN setup on the iShield failed in the September
+ * tests (docs/ishield-pinless-discoverable.md). Measure before relying on
+ * it. The footer names the browser rendering the page.
  */
 
 import { enrollKey, shareEnrollment, detectBrowser, ERROR_HINTS } from './key-enroll.js';
@@ -43,636 +32,112 @@ import { enrollKey, shareEnrollment, detectBrowser, ERROR_HINTS } from './key-en
 // ---------------------------------------------------------------------------
 
 /**
- * The Ideem user API, reached through the proxy this site runs at /db.
- * dev-server.mjs and api/db.js both forward to it.
+ * Where the QR code points when this page is served from localhost, which no
+ * phone can reach. The deployment's own origin is used everywhere else, so
+ * the code matches the origin the credential's RP ID is bound to. This is the
+ * Vercel project's production URL, seen serving on 2026-10-21.
  */
-const DB_BASE = './db';
+export const PUBLIC_DEMO_ORIGIN = 'https://usb-fido-recovery.vercel.app';
 
-/**
- * How long a read of the user database may take before the page gives up on
- * it: the badge lookup, and the by-phone check and read-back behind Register.
- * Added 2026-10-19 after a venue where the lookup hung and the operator had
- * no way past it. A write gets WRITE_TIMEOUT_MS, longer, and cutting one
- * short cannot leave a duplicate behind: the retry finds a record the
- * timed-out create did make by phone number and updates it (saveAttendee).
- */
-export const DB_TIMEOUT_MS = 6000;
-export const WRITE_TIMEOUT_MS = 15000;
+const LOCAL_HOSTNAMES = ['localhost', '127.0.0.1', '[::1]'];
 
-/**
- * Where the QR code sends the attendee's phone. A phone cannot reach this
- * computer's localhost, so a page served from there points at the deployment
- * instead; the credential written here is bound to this hostname, though, so
- * showQr warns when the two differ.
- */
-const PUBLIC_DEMO_ORIGIN = 'https://authenticate26.vercel.app';
-const LOCAL_HOSTNAMES = ['localhost', '127.0.0.1', '[::1]', '::1'];
-
-/** How often a camera frame is decoded, and the width it is scaled to for jsQR. */
-const SCAN_INTERVAL_MS = 150;
-const SCAN_WIDTH = 640;
-
-/** E.164 allows 15 digits; 7 is the shortest number worth accepting. */
+/** How many digits a phone number may have, bare. */
 const MIN_DIGITS = 7;
 const MAX_DIGITS = 15;
 
-/** Enough of an email check to catch a typo, no more. */
-const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-/** Friendlier explanations for what getUserMedia throws. */
-const CAMERA_ERRORS = {
-  NotAllowedError: 'Camera access was blocked. Allow the camera for this site in the address bar, then press Register again.',
-  PermissionDeniedError: 'Camera access was blocked. Allow the camera for this site in the address bar, then press Register again.',
-  NotFoundError: 'No camera was found on this computer.',
-  DevicesNotFoundError: 'No camera was found on this computer.',
-  NotReadableError: 'The camera is in use by another app. Close it and press Register again.',
-  TrackStartError: 'The camera is in use by another app. Close it and press Register again.',
-  OverconstrainedError: 'No camera on this computer matched the request.',
-  SecurityError: 'The camera only opens over HTTPS or on localhost.'
-};
-
 // ---------------------------------------------------------------------------
-// Pure helpers (exported for the test harness)
+// Pure helpers (a Node harness can cover these)
 // ---------------------------------------------------------------------------
 
 /**
- * The signal a database call runs under: fires at `timeoutMs`, or sooner
- * when the caller's own signal does (Manually Enter User cancels the badge
- * lookup in flight). fetch then rejects with a TimeoutError or an AbortError.
+ * Bare digits, with a leading US trunk 1 dropped from an 11-digit number, so
+ * "1 (913) 555-1235" and "9135551235" are the same User ID. The main page
+ * applies the same rule (phoneDigits in app.js) before comparing the typed
+ * number with the one the key hands back.
  */
-export function dbSignal(signal = null, timeoutMs = DB_TIMEOUT_MS) {
-  const timeout = AbortSignal.timeout(timeoutMs);
-  if (!signal) return timeout;
-  return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, timeout]) : timeout;
-}
-
-/** Words a failed database call for the flash: the timeout by its length, the rest as thrown. */
-export function describeDbError(err, timeoutMs = DB_TIMEOUT_MS) {
-  if (err?.name === 'TimeoutError') return `no answer within ${Math.round(timeoutMs / 1000)} seconds`;
-  if (err?.name === 'AbortError') return 'cancelled';
-  return err?.message || String(err);
-}
-
-/**
- * Bare digits of a phone number, the form the key, the database and the
- * ?userid= parameter all use. The US trunk prefix on an 11-digit number is
- * dropped, the same rule as phoneDigits in app.js. The record the API
- * returns may carry dashes (the owner's test user
- * is "512-555-1234"), so this runs on everything before it is handed on.
- */
-export function normalizePhone(raw) {
-  const digits = String(raw || '').replace(/\D/g, '');
+export function normalizePhone(value) {
+  const digits = String(value ?? '').replace(/\D/g, '');
   return digits.length === 11 && digits.startsWith('1') ? digits.slice(1) : digits;
 }
 
-/** "(913) 555-1234" for a ten-digit number; anything else as it came. */
+/** (913) 555-1235 for a ten-digit number; anything else as stored. */
 export function formatPhone(value) {
-  const text = String(value || '');
-  const digits = normalizePhone(text);
-  return digits.length === 10 ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : text;
+  const digits = normalizePhone(value);
+  return digits.length === 10 ? `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}` : String(value ?? '');
 }
 
 /**
- * The URL the attendee's phone opens once the key is enrolled: the demo with
- * the number in the User ID field. app.js reads
- * ?userid= on load and leaves New off, so the phone takes the login path and
- * reads the number back off the key.
+ * The phone number to enroll, or why it cannot be.
+ *
+ * @returns {{ok: true, phone: string}|{ok: false, error: string}}
+ */
+export function validatePhone(value) {
+  const phone = normalizePhone(value);
+  if (!phone) return { ok: false, error: 'Enter a phone number.' };
+  if (phone.length < MIN_DIGITS || phone.length > MAX_DIGITS) {
+    return { ok: false, error: `A phone number is ${MIN_DIGITS} to ${MAX_DIGITS} digits.` };
+  }
+  return { ok: true, phone };
+}
+
+/**
+ * The URL the QR code carries: the main page with the number as ?userid=,
+ * on this origin, or on the deployment when this page is on localhost.
  */
 export function registerUrl(phone, origin, hostname) {
   const base = LOCAL_HOSTNAMES.includes(hostname) ? PUBLIC_DEMO_ORIGIN : origin;
   return `${base}/?userid=${encodeURIComponent(phone)}`;
 }
 
-/** First and last name from a record, or a placeholder when both are blank. */
-export function attendeeName(record) {
-  return [record?.firstName, record?.lastName].map(s => String(s || '').trim()).filter(Boolean).join(' ') || 'Unnamed attendee';
-}
-
-/** One line for a camera error, by DOMException name. */
-export function cameraErrorMessage(err) {
-  return CAMERA_ERRORS[err?.name] || `${err?.name || 'Error'}: ${err?.message || 'the camera could not be opened'}`;
-}
-
-/**
- * Looks an attendee up by the confirmation number their badge carries. The
- * route is case-insensitive and answers with a single object, unlike the
- * by-phone route, which answers with an array.
- *
- * Gives up after DB_TIMEOUT_MS (a TimeoutError), or when `signal` fires.
- *
- * @returns {Promise<object|null>} The record, or null when there is none.
- */
-export async function lookupAttendee(id, fetchImpl = fetch, { signal = null } = {}) {
-  const res = await fetchImpl(`${DB_BASE}/users/conf/${encodeURIComponent(id)}`, { cache: 'no-store', signal: dbSignal(signal) });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`lookup returned ${res.status}`);
-  const body = await res.json();
-  return Array.isArray(body) ? body[0] ?? null : body;
-}
-
-/**
- * Looks a user up by phone number. The API matches the stored string exactly
- * and answers with an array, so bare digits in, first element out.
- *
- * Gives up after DB_TIMEOUT_MS (a TimeoutError), or when `signal` fires.
- *
- * @returns {Promise<object|null>} The record, or null when there is none.
- */
-export async function findUserByPhone(phone, fetchImpl = fetch, { signal = null } = {}) {
-  const res = await fetchImpl(`${DB_BASE}/users/phone/${encodeURIComponent(phone)}`, { cache: 'no-store', signal: dbSignal(signal) });
-  if (res.status === 404) return null;
-  if (!res.ok) throw new Error(`lookup returned ${res.status}`);
-  const body = await res.json();
-  return Array.isArray(body) ? body[0] ?? null : body;
-}
-
-/**
- * Registering earns 500 points (the owner's rule: 50 on 2026-10-19, 500 since
- * 2026-10-20, the evening the owner set every record then in the list to
- * 500): a record this page creates starts with them, and a record already
- * there at exactly 0 (a freshly loaded list starts everyone at 0) is credited
- * them the first time it is put on screen, by creditRegistration. Until
- * 2026-10-19 a new record got a random 500 to 9,500.
- */
-export const REGISTRATION_POINTS = 500;
-
-/** The partner string the balance route requires: free text nothing reads back (docs/user-api.md 3a). */
-export const REGISTRATION_PARTNER = 'REGISTRATION';
-
-/** What the record carries about where it came from; the API does keep this field. */
-function registrationNote(confNumber) {
-  const date = new Date().toISOString().slice(0, 10);
-  return confNumber ? `Registered from badge ${confNumber} ${date}` : `Registered manually ${date}`;
-}
-
-/**
- * Checks the registration form. Returns { record } with the names and the
- * company trimmed, the phone as bare digits and a null email or company
- * when none was given, or { error } with one line to show.
- */
-export function validateAttendee({ firstName, lastName, phone, email, company }) {
-  const first = String(firstName || '').trim();
-  const last = String(lastName || '').trim();
-  const digits = normalizePhone(phone);
-  const mail = String(email || '').trim();
-  const firm = String(company || '').trim();
-  if (!first || !last) return { error: 'First and last name are both needed.' };
-  if (!digits) return { error: 'A phone number is needed; it becomes the User ID.' };
-  if (digits.length < MIN_DIGITS || digits.length > MAX_DIGITS) {
-    return { error: `That phone number has ${digits.length} digits; it needs ${MIN_DIGITS} to ${MAX_DIGITS}.` };
-  }
-  if (mail && !EMAIL_PATTERN.test(mail)) return { error: 'That email address does not look right.' };
-  return { record: { firstName: first, lastName: last, phone: digits, email: mail || null, company: firm || null } };
-}
-
-/**
- * Adds the attendee to the user database, under their badge ID when they
- * have one, as far as the API allows. Three writes are tried in order and the
- * first the API accepts wins:
- *
- *   1. PUT /users/conf/:confNumber   only with a badge: the route the API's
- *      owner calls "create by confirmation number". Measured on 2026-10-09
- *      and again on 2026-10-12 it only updates a record that already carries
- *      the number and answers 404 otherwise (docs/user-api.md 3b). It is
- *      tried first so that, should it start creating, the record is keyed by
- *      the badge and a rescan finds it.
- *   2. PUT /users/:id                when the phone number is already in the
- *      database: an update keeping that record's balance and photo, rather
- *      than a duplicate, which the API would allow.
- *   3. POST /users                   a new record, with the registration points.
- *
- * No PUT body carries a balance: since 2026-10-19 the API answers 400 ("Use
- * PATCH on the balance endpoint with amount and partner to change balance")
- * to one that does, and checks the body before the lookup, so even the
- * by-badge PUT would fail that way. POST still takes one.
- *
- * email, Company (the API's spelling) and confNumber go in every body. Since
- * 2026-10-14 the API keeps email and Company on a POST, though no read
- * returns them and the PUT routes still ignore them. confNumber it still
- * discards everywhere (it comes back null), which is why the badge ID is
- * also written into customAttrib, a field it keeps, and why the result
- * reports `byBadge`: true when a read by confirmation number finds the
- * record afterwards, false when only the phone number will. A manual entry
- * has no badge, so for it `byBadge` is always false and only steps 2 and 3
- * run.
- *
- * Nothing here waits forever (2026-10-19): the reads give up at
- * DB_TIMEOUT_MS and the writes at WRITE_TIMEOUT_MS. A create cut short may
- * still have landed, which is why the retry's by-phone check runs first and
- * turns such a create into an update.
- *
- * @returns {Promise<{ how: 'conf'|'update'|'create', byBadge: boolean, record: object }>}
- */
-export async function saveAttendee({ confNumber, firstName, lastName, phone, email, company }, fetchImpl = fetch) {
-  const headers = { 'Content-Type': 'application/json' };
-  const badge = confNumber || null;
-  const fields = { firstName, lastName, phone, email, Company: company ?? null, confNumber: badge };
-
-  const byConf = badge ? await fetchImpl(`${DB_BASE}/users/conf/${encodeURIComponent(badge)}`, {
-    method: 'PUT',
-    headers,
-    signal: dbSignal(null, WRITE_TIMEOUT_MS),
-    body: JSON.stringify({ ...fields, photo: null, customAttrib: registrationNote(badge) })
-  }) : { status: 404, ok: false };
-
-  let how = 'conf';
-  if (byConf.status === 404) {
-    const existing = await findUserByPhone(phone, fetchImpl);
-    const body = {
-      ...fields,
-      photo: existing?.photo ?? null,
-      customAttrib: registrationNote(badge)
-    };
-    const res = await fetchImpl(existing ? `${DB_BASE}/users/${existing.userId}` : `${DB_BASE}/users`, {
-      method: existing ? 'PUT' : 'POST',
-      headers,
-      signal: dbSignal(null, WRITE_TIMEOUT_MS),
-      // The balance only on a create: a PUT carrying one is refused (400)
-      body: JSON.stringify(existing ? body : { ...body, balance: REGISTRATION_POINTS })
-    });
-    if (!res.ok) throw new Error(`${existing ? 'update' : 'create'} returned ${res.status}`);
-    how = existing ? 'update' : 'create';
-  } else if (!byConf.ok) {
-    throw new Error(`create by badge returned ${byConf.status}`);
-  }
-
-  // What the database holds now, read the way a rescan would read it, then
-  // the way the demo will.
-  const stored = badge ? await lookupAttendee(badge, fetchImpl) : null;
-  const record = stored ?? (await findUserByPhone(phone, fetchImpl)) ?? { ...fields };
-  return { how, byBadge: !!stored, record };
-}
-
-/**
- * The registration points, credited once: only to a record whose
- * balance is exactly 0, through the additive balance route (PATCH
- * /users/:id/balance { amount, partner }, docs/user-api.md 3a). The zero is
- * the once-only marker: a record this page creates starts with them, a record
- * credited before is not at 0, so a rescan credits nothing, and no marker
- * on the laptop is needed. Never throws: a refused or unanswered PATCH is
- * reported, and the next scan, finding the balance still 0, tries again.
- *
- * @returns {Promise<{ credited: boolean, balance: number|null, reason: string }>}
- *   reason is 'credited', 'has-points' (nothing to do), 'no-record' (no
- *   integer userId on the record), or the API's error text.
- */
-export async function creditRegistration(record, fetchImpl = fetch) {
-  if (!Number.isInteger(record?.userId)) return { credited: false, balance: null, reason: 'no-record' };
-  const balance = Number(record.balance);
-  if (balance !== 0) return { credited: false, balance: Number.isFinite(balance) ? balance : null, reason: 'has-points' };
-  try {
-    const res = await fetchImpl(`${DB_BASE}/users/${record.userId}/balance`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      signal: dbSignal(null, WRITE_TIMEOUT_MS),
-      body: JSON.stringify({ amount: REGISTRATION_POINTS, partner: REGISTRATION_PARTNER })
-    });
-    let body = {};
-    try { body = await res.json(); } catch (_) { /* no JSON body */ }
-    if (!res.ok) return { credited: false, balance: 0, reason: body.error || `balance PATCH returned ${res.status}` };
-    const after = Number(body.user?.balance ?? body.balance);
-    return { credited: true, balance: Number.isFinite(after) ? after : REGISTRATION_POINTS, reason: 'credited' };
-  } catch (err) {
-    return { credited: false, balance: 0, reason: describeDbError(err, WRITE_TIMEOUT_MS) };
-  }
+/** The first characters of a credential id, enough to tell keys apart on screen. */
+export function shortId(id) {
+  const text = String(id ?? '');
+  return text.length > 16 ? `${text.slice(0, 16)}…` : text;
 }
 
 // ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
-const $ = id => document.getElementById(id);
+const $ = (id) => document.getElementById(id);
 
-let flashTimer;
-let stream = null;        // the open camera stream while scanning
-let scanTimer = null;     // the decode loop's pending timeout
-let decoder = null;       // { name, decode(video) } once chosen
-let pendingBadge = null;  // the badge ID the open form is for; null for a manual entry
-let currentAttendee = null;  // { phone, firstName, lastName, displayName } the key step is for
-let lookup = null;           // { id, controller } while a badge lookup is in flight
+let flashTimer = null;
 
 function showFlash(message, state, duration = 6000) {
   const el = $('flash-status');
-  clearTimeout(flashTimer);
   el.textContent = message;
   el.className = 'flash ' + state;
-  if (duration) {
+  if (flashTimer) clearTimeout(flashTimer);
+  if (duration > 0) {
     flashTimer = setTimeout(() => { el.textContent = ''; el.className = 'flash'; }, duration);
   }
 }
 
-function clearFlash() {
-  clearTimeout(flashTimer);
-  $('flash-status').textContent = '';
-  $('flash-status').className = 'flash';
-}
-
 /**
- * Picks the decoder once: the browser's own BarcodeDetector when it can read
- * QR codes, otherwise jsQR on a canvas copy of the frame. Null when neither
- * exists, which means the vendor directory was not built.
+ * Enroll Key: the key-enroll.js create for the number in the box, then the
+ * warnings the key earned, what it did, and the hand-off code.
  */
-async function makeDecoder() {
-  if ('BarcodeDetector' in window) {
-    try {
-      const formats = await window.BarcodeDetector.getSupportedFormats();
-      if (formats.includes('qr_code')) {
-        const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
-        return {
-          name: 'BarcodeDetector',
-          async decode(video) {
-            const codes = await detector.detect(video);
-            return codes[0]?.rawValue ?? null;
-          }
-        };
-      }
-    } catch (_) { /* present but unusable; fall through to jsQR */ }
-  }
-
-  if (typeof window.jsQR === 'function') {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    return {
-      name: 'jsQR',
-      async decode(video) {
-        const scale = Math.min(1, SCAN_WIDTH / (video.videoWidth || SCAN_WIDTH));
-        canvas.width = Math.round(video.videoWidth * scale) || SCAN_WIDTH;
-        canvas.height = Math.round(video.videoHeight * scale) || Math.round(SCAN_WIDTH * 0.75);
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const image = ctx.getImageData(0, 0, canvas.width, canvas.height);
-        return window.jsQR(image.data, image.width, image.height)?.data ?? null;
-      }
-    };
-  }
-
-  return null;
-}
-
-/** Opens the camera and starts the decode loop. */
-async function startScan() {
-  if (stream) return;
-  if (!navigator.mediaDevices?.getUserMedia) {
-    showFlash('This browser cannot open the camera here. Use HTTPS or localhost.', 'failure', 0);
+async function enrollInsertedKey() {
+  const check = validatePhone($('phone').value);
+  if (!check.ok) {
+    showFlash(check.error, 'failure');
+    $('phone').focus();
     return;
   }
-  decoder ??= await makeDecoder();
-  if (!decoder) {
-    showFlash('No QR decoder is available: vendor/jsqr is missing. Run npm run build.', 'failure', 0);
-    return;
-  }
+  const { phone } = check;
+  $('phone').value = phone;
 
-  clearResult();
-  try {
-    // facingMode is a preference, not a requirement: a laptop has only the
-    // front camera, and that is what it gets.
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
-      audio: false
-    });
-  } catch (err) {
-    showFlash(cameraErrorMessage(err), 'failure', 0);
-    return;
-  }
-
-  const video = $('camera');
-  video.srcObject = stream;
-  try {
-    await video.play();
-  } catch (err) {
-    stopScan();
-    showFlash(`The camera preview could not start: ${err.message}`, 'failure', 0);
-    return;
-  }
-
-  $('scanner').hidden = false;
-  $('register-btn').hidden = true;
-  $('manual-entry-btn').hidden = true;
-  $('decoder-info').textContent = `Decoding with ${decoder.name}`;
-  showFlash('Hold the QR code on your badge up to the camera', 'info', 0);
-  scanLoop();
-}
-
-/** Decodes one frame, then schedules the next until something is read. */
-async function scanLoop() {
-  if (!stream) return;
-  const video = $('camera');
-  if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
-    let value = null;
-    try {
-      value = await decoder.decode(video);
-    } catch (err) {
-      console.warn('[register] decode failed:', err);
-    }
-    if (value && stream) {
-      stopScan();
-      await handleScanned(value);
-      return;
-    }
-  }
-  scanTimer = setTimeout(scanLoop, SCAN_INTERVAL_MS);
-}
-
-/** Releases the camera and hides the preview. Safe to call twice. */
-function stopScan() {
-  clearTimeout(scanTimer);
-  scanTimer = null;
-  if (stream) {
-    for (const track of stream.getTracks()) track.stop();
-    stream = null;
-  }
-  const video = $('camera');
-  video.pause();
-  video.srcObject = null;
-  $('scanner').hidden = true;
-  $('register-btn').hidden = false;
-  $('manual-entry-btn').hidden = false;
-}
-
-/**
- * The value a scan produced: look it up and show it. The lookup gives up at
- * DB_TIMEOUT_MS, and a database that does not answer, or answers with an
- * error, opens the form for the badge just as a clean "not found" does, so
- * the operator is never left with an error and no way on (2026-10-19, after
- * a venue where the lookup hung). Manually Enter User or a newer scan
- * cancels the lookup in flight, and a cancelled lookup touches nothing on
- * its way out: before, its late answer reset the manual form the operator
- * was typing into, or put an error over it.
- */
-async function handleScanned(value) {
-  const id = String(value).trim();
-  if (!id) return;
-  cancelLookup();
-  const mine = { id, controller: new AbortController() };
-  lookup = mine;
-  clearResult();
-  showFlash(`Looking up badge ${id}... Press Manually Enter User to skip the wait.`, 'info', 0);
-
-  let record;
-  try {
-    record = await lookupAttendee(id, fetch, { signal: mine.controller.signal });
-  } catch (err) {
-    if (lookup !== mine) return;  // cancelled: something else owns the screen now
-    lookup = null;
-    $('register-btn').textContent = 'Scan another badge';
-    showFlash(`The user database did not answer for badge ${id} (${describeDbError(err)}). Fill in the details below to register it.`, 'failure', 0);
-    showNewAttendeeForm(id, 'unanswered');
-    return;
-  }
-  if (lookup !== mine) return;
-  lookup = null;
-  $('register-btn').textContent = 'Scan another badge';
-  if (!record) {
-    showFlash(`No attendee has the badge ID ${id}. Fill in the details below to register it.`, 'info', 0);
-    showNewAttendeeForm(id);
-    return;
-  }
-
-  showFlash(`Found ${attendeeName(record)}`, 'success');
-  showAttendee(record, id);
-  await awardRegistration(record, `Found ${attendeeName(record)}`);
-}
-
-/** Drops the badge lookup in flight, if any; its answer is then ignored. */
-function cancelLookup() {
-  lookup?.controller.abort();
-  lookup = null;
-}
-
-/** Credits the registration points when they are due and says what the account holds. */
-async function awardRegistration(record, prefix) {
-  const result = await creditRegistration(record);
-  const pts = balance => `${Math.floor(balance)} pts`;
-  if (result.credited) {
-    showFlash(`${prefix}. +${REGISTRATION_POINTS} points for registering (${pts(result.balance)}).`, 'success', 10000);
-  } else if (result.reason === 'has-points') {
-    showFlash(`${prefix}. ${result.balance === null ? 'Balance not read' : pts(result.balance) + ' on the account'}.`, 'success', 10000);
-  } else if (result.reason === 'no-record') {
-    showFlash(`${prefix}.`, 'success');
-  } else {
-    showFlash(`${prefix}. The ${REGISTRATION_POINTS} registration points were not credited (${result.reason}); scan the badge again to retry.`, 'failure', 0);
-  }
-}
-
-/**
- * Offers the form, empty: for a badge ID the database does not know, for one
- * it did not answer for (`reason` 'unanswered'), or with no badge at all
- * after Manually Enter User.
- */
-function showNewAttendeeForm(id = null, reason = 'unknown') {
-  pendingBadge = id || null;
-  $('new-attendee-title').textContent = pendingBadge ? 'Step 2: Register this badge' : 'Step 2: Enter your details';
-  $('new-attendee-hint').textContent = !pendingBadge
-    ? 'Fill in the details and press Register to add them. The phone number becomes the User ID.'
-    : reason === 'unanswered'
-      ? `The user database did not answer for badge ID ${pendingBadge}. Fill in the details and press Register to add them; a record it already holds for the phone number is updated, not duplicated.`
-      : `Nobody in the user database has badge ID ${pendingBadge}. Fill in the details and press Register to add them.`;
-  $('new-attendee-form').reset();
-  $('new-attendee-section').hidden = false;
-  $('new-first-name').focus();
-  $('new-attendee-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-/** Register on the form: check it, write it, then carry on as for a known badge. */
-async function registerAttendee() {
-  const id = pendingBadge;
-  const checked = validateAttendee({
-    firstName: $('new-first-name').value,
-    lastName: $('new-last-name').value,
-    phone: $('new-phone').value,
-    email: $('new-email').value,
-    company: $('new-company').value
-  });
-  if (checked.error) {
-    showFlash(checked.error, 'failure');
-    return;
-  }
-
-  const btn = $('new-attendee-btn');
-  btn.classList.add('loading');
-  btn.disabled = true;
-  showFlash(`Registering ${attendeeName(checked.record)}...`, 'info', 0);
-  let saved;
-  try {
-    saved = await saveAttendee({ confNumber: id, ...checked.record });
-  } catch (err) {
-    showFlash(`The user database did not take the registration (${describeDbError(err, WRITE_TIMEOUT_MS)}). Check the details and press Register again.`, 'failure', 0);
-    return;
-  } finally {
-    btn.classList.remove('loading');
-    btn.disabled = false;
-  }
-
-  $('new-attendee-section').hidden = true;
-  // What was typed, under what the database now holds. The email and company
-  // stay on screen whatever the API kept: a create stores them, an update of
-  // a record the phone number already had does not, and the note says which.
-  const record = {
-    ...checked.record,
-    ...saved.record,
-    email: saved.record?.email || checked.record.email,
-    company: saved.record?.Company || checked.record.company,
-    confNumber: id
-  };
-  showFlash(`Registered ${attendeeName(record)}`, 'success');
-  const kept = saved.how === 'update'
-    ? 'This phone number was already in the user database, so that record was updated with the name; the database keeps email and company only on a record it creates.'
-    : '';
-  const badgeNote = id && !saved.byBadge
-    ? 'The user database has no field for the badge ID, so scanning this badge again will not find this record; the demo only needs the phone number.'
-    : '';
-  showAttendee(record, id, [kept, badgeNote].filter(Boolean).join(' '));
-  await awardRegistration(record, `Registered ${attendeeName(record)}`);
-}
-
-/** Fills the details section and, when the record has a number, offers the key step. */
-function showAttendee(record, id, note = '') {
-  $('attendee-name').textContent = attendeeName(record);
-  $('attendee-phone').textContent = record.phone ? formatPhone(record.phone) : 'not on record';
-  $('attendee-email').textContent = record.email || 'not on record';
-  $('attendee-company').textContent = record.Company || record.company || 'not on record';
-  $('attendee-id').textContent = record.confNumber || id || 'none, entered manually';
-  $('attendee-section').hidden = false;
-
-  const phone = normalizePhone(record.phone);
-  if (!phone) {
-    note = 'This record has no phone number, so there is nothing to put on a key. Use Manually Enter User to register it with one.';
-  }
-  $('attendee-note').textContent = note;
-  $('attendee-note').hidden = !note;
-  if (!phone) return;
-
-  currentAttendee = {
-    phone,
-    firstName: String(record.firstName || '').trim(),
-    lastName: String(record.lastName || '').trim(),
-    displayName: attendeeName(record)
-  };
-  $('enroll-warnings').replaceChildren();
-  $('enroll-key-btn').textContent = 'Enroll FIDO Key';
-  $('enroll-section').hidden = false;
-  $('qr-section').hidden = true;   // only once the number is on a key
-  $('enroll-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-/**
- * Enroll FIDO Key: the key-enroll.js create for the attendee on screen, then the
- * warnings the key earned and, since the record is already in the database,
- * the hand-off code.
- */
-async function enrollAttendeeKey() {
-  if (!currentAttendee) return;
-  const { phone, displayName, firstName, lastName } = currentAttendee;
-
-  const btn = $('enroll-key-btn');
+  const btn = $('enroll-btn');
   btn.classList.add('loading');
   btn.disabled = true;
   $('enroll-warnings').replaceChildren();
+  $('enroll-result').hidden = true;
   $('qr-section').hidden = true;
-  showFlash('Insert the FIDO Key and touch it...', 'info', 0);
+  showFlash('Insert the FIDO key. Enter its PIN and touch it when the browser asks...', 'info', 0);
 
   let result;
   try {
-    result = await enrollKey({ phone, displayName, firstName, lastName });
+    result = await enrollKey({ phone, displayName: formatPhone(phone) });
   } catch (err) {
     const hint = ERROR_HINTS[err.name] ? ` ${ERROR_HINTS[err.name]}` : '';
     showFlash(`${err.name}: ${err.message}${hint}`, 'failure', 12000);
@@ -689,9 +154,20 @@ async function enrollAttendeeKey() {
     p.textContent = text;
     return p;
   }));
-  btn.textContent = 'Enroll another FIDO Key';
-  showFlash(result.ok ? `FIDO key enrolled for ${displayName}` : 'Key enrolled, but check the warnings', result.ok ? 'success' : 'failure');
+  renderResult(result.entry);
+  btn.textContent = 'Enroll another key';
+  showFlash(result.ok ? `FIDO key enrolled for ${formatPhone(phone)}` : 'Key enrolled, but check the warnings', result.ok ? 'success' : 'failure');
   await showQr(phone);
+}
+
+/** What the key did: the credential it made and whether the PIN was used. */
+function renderResult(entry) {
+  $('result-phone').textContent = `${formatPhone(entry.phone)} (${entry.phone})`;
+  $('result-credential').textContent = shortId(entry.id);
+  $('result-credential').title = entry.id;
+  $('result-uv').textContent = entry.uvAtCreate === true ? 'yes' : entry.uvAtCreate === false ? 'no' : 'unknown';
+  $('result-when').textContent = new Date(entry.createdAt).toLocaleString();
+  $('enroll-result').hidden = false;
 }
 
 /**
@@ -709,7 +185,7 @@ async function showQr(phone) {
   const sameOrigin = url.startsWith(location.origin + '/');
   $('qr-note').textContent = sameOrigin ? '' :
     `This page is running on ${location.origin}, so the credential just written belongs to ${location.hostname}. `
-    + 'The QR opens the deployment instead, where that credential does not exist. Register from the deployment itself for a key the scanned page can use.';
+    + 'The QR opens the deployment instead, where that credential does not exist. Enroll from the deployment itself for a key the scanned page can use.';
   $('qr-note').hidden = sameOrigin;
 
   try {
@@ -717,7 +193,7 @@ async function showQr(phone) {
     const qr = qrcode(0, 'M');    // 0: smallest version the data fits in
     qr.addData(url);
     qr.make();
-    // Geometry only; nothing from the record reaches the markup.
+    // Geometry only; nothing from the number reaches the markup.
     $('qr-code').innerHTML = qr.createSvgTag({ cellSize: 8, margin: 8 * 4, scalable: true });
     $('qr-code').hidden = false;
   } catch (err) {
@@ -730,23 +206,12 @@ async function showQr(phone) {
   $('qr-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
 
-/** Back to the one-button state, without touching the camera. */
-function clearResult() {
-  currentAttendee = null;
-  $('new-attendee-section').hidden = true;
-  $('attendee-section').hidden = true;
-  $('attendee-note').hidden = true;
-  $('enroll-section').hidden = true;
-  $('enroll-warnings').replaceChildren();
-  $('qr-section').hidden = true;
-  $('qr-code').replaceChildren();
-}
-
-/** Names the browser in the footer and warns in desktop Chrome. */
+/** Names the browser in the footer, with a word for desktop Chrome. */
 async function showBrowserInfo() {
   const { label, chromium, desktop } = await detectBrowser();
-  $('browser-info').textContent = `Browser: ${label}`;
-  $('chrome-warning').hidden = !(chromium && desktop);
+  $('browser-info').textContent = `Browser: ${label}` + (chromium && desktop
+    ? '. Desktop Chrome sets the key\'s PIN itself when the key has none; if that fails, enroll in Safari.'
+    : '');
 }
 
 // ---------------------------------------------------------------------------
@@ -754,41 +219,15 @@ async function showBrowserInfo() {
 // ---------------------------------------------------------------------------
 
 document.addEventListener('DOMContentLoaded', () => {
-  $('register-btn').addEventListener('click', () => startScan());
-
-  $('cancel-scan-btn').addEventListener('click', () => {
-    stopScan();
-    showFlash('Scan cancelled', 'info');
+  $('enroll-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    enrollInsertedKey();
   });
 
-  // No badge: straight to the form, with nothing to look up, and a lookup
-  // still running for the last badge dropped so it cannot come back over it
-  $('manual-entry-btn').addEventListener('click', () => {
-    stopScan();
-    cancelLookup();
-    clearResult();
-    clearFlash();
-    showNewAttendeeForm(null);
-  });
-
-  $('new-attendee-form').addEventListener('submit', event => {
-    event.preventDefault();
-    registerAttendee();
-  });
-
-  // Show the number the way it will be stored: digits only
-  $('new-phone').addEventListener('blur', () => {
-    const digits = normalizePhone($('new-phone').value);
-    if (digits) $('new-phone').value = digits;
-  });
-
-  $('enroll-key-btn').addEventListener('click', () => enrollAttendeeKey());
-  if (!window.PublicKeyCredential) {
-    $('enroll-key-btn').disabled = true;
-    $('enroll-key-btn').textContent = 'This browser has no WebAuthn support';
+  if (!navigator.credentials?.create) {
+    $('enroll-btn').disabled = true;
+    showFlash('This browser has no WebAuthn support, so it cannot write a key.', 'failure', 0);
   }
-  showBrowserInfo();
 
-  // Leaving the page must not leave the camera light on
-  window.addEventListener('pagehide', () => stopScan());
+  showBrowserInfo();
 });

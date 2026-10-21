@@ -1,6 +1,6 @@
-# Ideem ZSM + Passkeys+ Integration Guide
+# USB FIDO Key Recovery: Ideem ZSM + Passkeys+ Integration Guide
 
-A partner-facing implementation guide for integrating Ideem Zero Share MPC (ZSM) authentication and Passkeys+ into a web application.
+A partner-facing implementation guide for a web app that binds three factors to a phone, a Swissbit iShield USB FIDO key, the phone number, and an Ideem Passkeys+ passkey, and recovers from a lost key by associating a replacement.
 
 ---
 
@@ -10,7 +10,7 @@ A partner-facing implementation guide for integrating Ideem Zero Share MPC (ZSM)
 2. [Prerequisites](#2-prerequisites)
 3. [Configuration](#3-configuration)
 4. [Quick Start](#4-quick-start)
-5. [iShield Integration (Optional)](#5-ishield-integration-optional)
+5. [The FIDO Key](#5-the-fido-key)
 6. [API Reference](#6-api-reference)
 7. [Architecture](#7-architecture)
 8. [Troubleshooting](#8-troubleshooting)
@@ -27,73 +27,47 @@ The client-side share is stored in the browser's **IndexedDB** and bound with **
 
 ### What is Passkeys+?
 
-**Passkeys+** extends ZSM with FIDO2 passkey credentials. When enabled, authentication requires both the ZSM secret share AND a passkey challenge (biometric or security key), giving you two distinct factors in a single user gesture. 
+**Passkeys+** extends ZSM with FIDO2 passkey credentials. When enabled, authentication requires both the ZSM secret share AND a passkey challenge (biometric or security key), giving you two distinct factors in a single user gesture.
 
 ### What is Silent Network Authentication?
 
 **Silent Network Authentication (SNA)** verifies that a phone number belongs to the device in hand by asking the mobile network, with nothing for the user to type: the device opens a one-time URL over cellular data, the carrier recognises the SIM and redirects back with a code, and the backend exchanges the code for a match verdict. The demo plays a **simulation** of that flow, modelled on [IDlayr's Secure SNA walkthrough](https://secure-sna-demo.idlayr.com), in `sna.js`. It makes no network request; a real integration replaces the inside of `verifyNumber()` with calls to a backend that holds the IDlayr key.
 
-### Authentication Flow: Three Phases
+### What is the FIDO key for?
 
-The system operates in three phases:
+The USB key is a possession factor the user carries. It is written once, on the registration page, with the user's phone number stored on it as a discoverable credential protected by the key's PIN. The phone then reads it with a raw WebAuthn get: the key answers with the number, after the PIN and a touch, and the app associates that credential with the phone. When the key is lost, the user says so in the app, a replacement is written with the same number, and the app associates the replacement: a different credential, the same User ID. The lost one is refused from then on.
+
+### The flows
 
 ```
-Phase 1: TRUST DEVICE
-  User enrolls a new device. Creates the ZSM secret share (IndexedDB)
-  and registers a Passkeys+ credential (FIDO2 passkey) with the server.
-  The demo then runs the simulated Silent Network Authentication check
-  (sna.js) and ends on four indicators: iShield, Number Verified,
-  Device Bound, Passkey. This is a one-time operation per device.
-  An attendee starts on the registration page (register.html): the laptop
-  camera reads their badge QR and the user database answers with their
-  name, phone and email. A badge the database does not know, or does not
-  answer for within six seconds, opens a short form instead (name, phone,
-  email, company), and Manually Enter User opens that form without a badge,
-  dropping any lookup still running; Register adds the attendee. Enroll FIDO Key
-  then writes the phone number onto their key as a discoverable credential
-  (key-enroll.js), and a second QR opens the demo
-  on their phone with the number already in the User ID field: Login
-  reads it back off the key, then ZSM + Passkeys+ enroll on the phone.
+REGISTRATION (register.html, on a Mac in Safari)
+  Phone number -> Enroll Key: navigator.credentials.create() with the number
+  as user.id, residentKey required, userVerification required (the key's PIN)
+  -> QR code and link that open the main page with ?userid=<number>
 
-Phase 2: LOGIN
-  User authenticates on a trusted device. The ZSM share in IndexedDB
-  cooperates with the server share, optionally combined with a Passkeys+
-  challenge. No hardware token needed for daily login. A login lasts 36
-  hours on that device: a return within them lands on the Actions
-  screen without a prompt; Log Out or Reset Device ends it. A browser
-  that holds no ZSM share for a number whose passkey the server knows
-  (a private tab, another browser, a second device on the same keychain)
-  is rebound by the passkey alone: no key, and the carrier check is not
-  repeated.
+SETUP (index.html, first Continue on a phone)
+  1. webauthnAuthenticate(user)  -- PIN and touch; the key's user handle must
+                                    match the User ID; the credential id and
+                                    the time are recorded on the phone
+  2. verifyNumber(user)          -- the simulated carrier check (sna.js)
+  3. enroll(user, 'required')    -- ZSM share + Passkeys+ passkey, one call
 
-Phase 3: PROTECTED ACTIONS (step-up auth)
-  After login, the Actions screen shows the attendee's points balance
-  large, and the two actions (Authenticate, P2P Contact Exchange) trigger
-  a step-up authentication -- the same authenticate() call used for login,
-  but scoped to a specific action. The first time, Authenticate then adds
-  a fixed number of points (25, shown on the button) to the attendee's
-  record in the user database (PATCH /users/:id/balance via the /db
-  proxy, with partner "IDEEM" in the body, which the API requires) and
-  the balance on screen updates; after that the button shows 0 and a
-  press only steps up. View Leaderboard is a plain link to the
-  conference dashboard. View Contacts lists the attendees this user has
-  exchanged contacts with, read from the user database, with an Email me
-  the list button that opens the phone's mail app (a mailto: link with the
-  list in the body). P2P Contact Exchange opens a QR code instead. Another attendee scans
-  it, is asked to confirm sharing their contact info, verifies with their
-  passkey, and both phones then show the other person's name and phone
-  number, read from the user database by api/exchange.js. Each side's
-  passkey verification is what authorizes it. The completed exchange is
-  written to that database too (POST /exchanges, one row each way, so each
-  attendee gains the other as a contact there); the screen says whether
-  that landed and lists the attendee's contacts from it. Each side earns
-  100 points for a new contact, credited by api/exchange.js at completion;
-  exchanging again with the same person earns nothing, and the screen says
-  which it was.
+SIGN-IN (a phone that holds the ZSM share)
+  1. authenticate(user, 'required')  -- the passkey alone
 
-Phase 4: ENABLING / DISABLING DEVICE
-  User can disable device with click of button. To re-enable device, user must reinsert iShield Key.
+HOME
+  The key: credential, associated date and time, last verified, status.
+  The factors: USB Key, Phone# Verified, Device Bound, Passkey.
+  The challenge and signed challenge each factor's last ceremony produced.
+  Authenticate -- a fresh passkey step-up.
+  I lost this key -- a dialog; the key is marked lost and refused.
+  Associate new FIDO key -- authenticate(user, 'required'), verifyNumber(user)
+    again, then webauthnAuthenticate(user) on the replacement: the same number
+    under a new credential id becomes the associated key; the previous one is
+    marked replaced and refused.
 ```
+
+There is no backend of the app's own. What the app knows about a user's keys lives in the phone's browser (`key-records.js`); the passkey and the ZSM share live with Ideem and in the browser's IndexedDB; the number check leaves a marker on the phone.
 
 ### How They Work Together
 
@@ -122,27 +96,26 @@ Phase 4: ENABLING / DISABLING DEVICE
 ```json
 {
   "dependencies": {
-    "@ideem/zsm-client-sdk": "^2.7.0",
-    "@ideem/plugins.passkeys-plus": "^1.2.1"
+    "@ideem/zsm-client-sdk": "latest",
+    "qrcode-generator": "^2.0.4"
   }
 }
 ```
 
-The ZSM Client SDK (`@ideem/zsm-client-sdk`) is the core library. The Passkeys+ plugin (`@ideem/plugins.passkeys-plus`) is a side-effect import that registers itself with the SDK automatically.
-
+The ZSM Client SDK (`@ideem/zsm-client-sdk`) is the core library; Passkeys+ is part of it, there is no separate plugin to import. `qrcode-generator` draws the registration page's hand-off code.
 
 ### Ideem Account
 
 You need an Ideem application provisioned with:
 - An `application_id` (UUID)
 - A client-side `api_key` (UUID)
-- A server-side `server_key` (UUID, for token validation) ***NOTE*** The tokenValidation will happen on the server in a real environment. It is only included here to make the demo easier to operate. 
+- A server-side `server_key` (UUID, for token validation) ***NOTE*** The tokenValidation will happen on the server in a real environment. It is only included here to make the demo easier to operate.
 
 Contact Ideem to provision your application.
 
 ### Module Loading
 
-The SDK is distributed as ES modules. In the demo, an import map resolves bare specifiers to vendored files. Can also use npm.
+The SDK is distributed as ES modules. In the demo, an import map in `index.html` resolves the bare specifier to the vendored copy that `npm run build` places under `vendor/`. Can also use npm.
 
 If you use a bundler (Vite, webpack, esbuild), standard `node_modules` resolution works and you do not need the import map.
 
@@ -156,11 +129,11 @@ Create a JSON configuration file with your Ideem application credentials:
 
 ```json
 {
-  "application_id": "ad9bf691-5803-4752-9f35-51f29ab8d58b",
-  "api_key": "0f7fdf8e-db1c-4370-88ae-f93078bfb974",
-  "region": "demo",
-  "server_key": "0f7fdf8e-db1c-4370-88ae-f93078bfb974",
-  "validate_url": "https://zsm-authenticator-demo.useideem.com/api/pkp/validate-token"
+  "application_id": "<your application id>",
+  "api_key": "<your client-side api key>",
+  "server_key": "<your server key>",
+  "validate_url": "https://zsm-authenticator-demo.useideem.com/api/pkp/validate-token",
+  "region": "demo"
 }
 ```
 
@@ -196,7 +169,7 @@ if (/localhost:\d+/.test(window.location.host)) {
       config[key] = config[key].replace(/[a-f0-9]{4}/g, '0000');
     }
   }
-  config.application_environment = 'test';
+  config.application_environment = 'TEST';
 }
 ```
 
@@ -208,14 +181,11 @@ You can replicate this pattern or use separate config files for dev vs. producti
 
 This section shows the minimal code to integrate ZSM + Passkeys+ into your application. All examples are drawn from [`umfa.js`](./umfa.js).
 
-### Step 1: Import the SDK and Plugin
+### Step 1: Import the SDK
 
 ```javascript
 import { UMFAClient } from '@ideem/zsm-client-sdk';
-import PasskeysPlus from '@ideem/plugins.passkeys-plus'; // Side-effect: registers plugin
 ```
-
-The `PasskeysPlus` import is a side-effect -- you do not call it directly. Importing it registers the Passkeys+ plugin with the SDK so that `UMFAClient` can use passkey operations.
 
 ### Step 2: Load Configuration and Create the Client
 
@@ -224,41 +194,42 @@ The `PasskeysPlus` import is a side-effect -- you do not call it directly. Impor
 const config = await fetch('./zsm_app_config.json').then(r => r.json());
 
 // Create a client for a specific user
-const clientConfig = { ...config, consumer_id: 'alice' };
+const clientConfig = { ...config, consumer_id: '9135551235' };
 const client = new UMFAClient(clientConfig);
 
 // Wait for WASM initialization to complete
 await client.finished();
 ```
 
-The `consumer_id` is the username or user identifier in your system. Each `UMFAClient` instance is bound to a single user. If the user changes, create a new instance.
+The `consumer_id` is the user identifier in your system; the demo uses the phone number, bare digits. Each `UMFAClient` instance is bound to a single user. If the user changes, create a new instance.
 
 `client.finished()` returns a Promise that resolves when the SDK's internal WASM module has loaded and initialized. You must await this before calling any other method.
 
 ### Step 3: Check Enrollment Status
 
-Before enrolling or authenticating, check whether the user already has credentials on this device:
+Before enrolling or authenticating, check what the user already has on this device and on the server:
 
 ```javascript
-// Check ZSM + Passkeys+ enrollment
-const status = await client.checkAllEnrollments('alice');
-// status = { hasZSMCred: boolean, hasRemotePasskey: boolean, ... }
+const status = await client.checkAllEnrollments('9135551235');
 ```
 
 | Field | Meaning |
 |-------|---------|
 | `hasZSMCred` | The device has a ZSM secret share in IndexedDB |
+| `hasLocalPasskey` | A Passkeys+ credential for this user is usable from this device |
 | `hasRemotePasskey` | A Passkeys+ credential is registered on the server for this user |
+| `pkpCredential` | The server's challenge for that passkey, when one exists; `enroll` uses it to rebind a device from the passkey |
+| `passkeySupported` | This browser can do passkeys at all |
+| `isUsingPasswordManager` | An extension has replaced `navigator.credentials.get` |
 
-If both are `true`, the device is trusted and the user can authenticate. If either is `false`, the user needs to enroll.
+If `hasZSMCred` is `true`, the device is set up and the user can authenticate. If it is `false`, the user needs to enroll, which on a device whose user the server already knows means proving the existing passkey rather than creating a second one.
 
 ### Step 4: Enroll the User
 
-Enrollment creates the ZSM secret share and (optionally) registers a Passkeys+ credential:
+Enrollment creates the ZSM secret share and registers a Passkeys+ credential. The second argument is the SDK's user-verification mode:
 
 ```javascript
-// Enroll with ZSM + Passkeys+ (second argument = true)
-const credential = await client.enroll('alice', true);
+const credential = await client.enroll('9135551235', 'required');
 
 if (credential === false) {
   // Already enrolled
@@ -271,13 +242,16 @@ if (credential === false) {
 }
 ```
 
-The second parameter (`true`) enables Passkeys+. When `true`, the browser will prompt the user to create a passkey (biometric/security key). When `false`, only the ZSM share is created (no passkey prompt).
+| Mode | What happens |
+|------|--------------|
+| `'required'` | The passkey is mandatory: a cancelled passkey sheet fails the enrollment. On a device with no share whose user already has a passkey on the server, the SDK authenticates that passkey and rebuilds the share instead of registering a second one. The demo uses this mode everywhere, since the passkey is its recovery factor. |
+| `'preferred'` (or `true`) | The browser prompts for a passkey, and a cancelled sheet falls back to a ZSM-only enrollment with no passkey. |
+| `'prevented'` (or `false`) | ZSM only; no passkey prompt. |
 
 ### Step 5: Authenticate the User
 
 ```javascript
-// Authenticate with ZSM + Passkeys+
-const result = await client.authenticate('alice', true);
+const result = await client.authenticate('9135551235', 'required');
 
 if (result === false) {
   // Not enrolled on this device
@@ -292,9 +266,11 @@ if (result === false) {
 }
 ```
 
+The same modes apply: `'required'` fails when the passkey does not answer, `'preferred'` falls back to ZSM alone.
+
 ### Step 6: Validate the Token
 
-After enrollment or authentication, validate the token with the Ideem server to get a JWT. ***IMPORTANT*** You must validateToken() after an enroll call or it will not be activated. 
+After enrollment or authentication, validate the token with the Ideem server to get a JWT. ***IMPORTANT*** You must validateToken() after an enroll call or it will not be activated.
 
 ```javascript
 const response = await fetch(config.validate_url, {
@@ -305,7 +281,7 @@ const response = await fetch(config.validate_url, {
   },
   body: JSON.stringify({
     application_id: config.application_id,
-    user_id: 'alice',
+    user_id: '9135551235',
     token: credential,  // The token from enroll() or authenticate()
     environment: config.application_environment
   })
@@ -322,32 +298,31 @@ if (response.ok && data.token) {
 
 ```javascript
 import { UMFAClient } from '@ideem/zsm-client-sdk';
-import PasskeysPlus from '@ideem/plugins.passkeys-plus';
 
 const config = await fetch('./zsm_app_config.json').then(r => r.json());
 
-async function trustDevice(username) {
-  const client = new UMFAClient({ ...config, consumer_id: username });
+async function setUpDevice(user) {
+  const client = new UMFAClient({ ...config, consumer_id: user });
   await client.finished();
 
-  const status = await client.checkAllEnrollments(username);
-  if (status?.hasZSMCred && status?.hasRemotePasskey) {
-    console.log('Already enrolled');
+  const status = await client.checkAllEnrollments(user);
+  if (status?.hasZSMCred) {
+    console.log('Already set up');
     return;
   }
 
-  const credential = await client.enroll(username, true);
+  const credential = await client.enroll(user, 'required');
   if (credential && !(credential instanceof Error)) {
     console.log('Enrollment successful');
     // Validate token with your server...
   }
 }
 
-async function login(username) {
-  const client = new UMFAClient({ ...config, consumer_id: username });
+async function signIn(user) {
+  const client = new UMFAClient({ ...config, consumer_id: user });
   await client.finished();
 
-  const result = await client.authenticate(username, true);
+  const result = await client.authenticate(user, 'required');
   if (result && !(result instanceof Error) && Object.keys(result).length > 0) {
     console.log('Authentication successful');
     // Validate token with your server...
@@ -358,110 +333,98 @@ async function login(username) {
 
 ---
 
-## 5. iShield Integration (Optional)
+## 5. The FIDO Key
 
-The demo includes raw WebAuthn integration with Swissbit iShield USB security keys. This is independent of ZSM/Passkeys+ and uses the browser's `navigator.credentials` API directly. You may want to integrate hardware security keys alongside ZSM for high-assurance scenarios like device suspension/reactivation.
+The USB key is handled with the browser's `navigator.credentials` API directly, independently of the SDK. Three modules share the work:
 
-All iShield code lives in [`ishield.js`](./ishield.js).
+| Module | Role |
+|--------|------|
+| [`key-enroll.js`](./key-enroll.js) | The create that writes the phone number onto a key (the registration page) |
+| [`ishield.js`](./ishield.js) | The get that reads whichever key is present (the main page), plus base64url and SHA-256 helpers |
+| [`key-records.js`](./key-records.js) | What a browser knows about a user's keys: associated, lost, replaced, and when |
 
-> **Planned change:** test findings for reading an iShield key on any phone with a touch and no PIN (discoverable credentials, per-browser behaviour, Chrome's limits) are in [`docs/ishield-pinless-discoverable.md`](./docs/ishield-pinless-discoverable.md). They are not yet integrated into the demo.
-
-### How iShield Fits the Flow
-
-In the demo, the attendee's iShield USB key is written at the registration page (`key-enroll.js`), and the first Enter Game on a phone reads it FIRST (a raw WebAuthn get, behind a dialog that names the four steps), then enrolls ZSM + Passkeys+ (behind a second dialog). The iShield key serves as a recovery mechanism -- if a device is "suspended" (e.g., reported compromised), the user must physically touch their iShield key to reactivate Passkeys+ login.
-
-```
-First Enter Game (binding):
-  1. webauthnAuthenticate(user) -- touch iShield USB key; its user handle must match the User ID
-     (a key that does not answer offers Continue without the USB Key: the
-      binding goes on and the USB Key indicator reads false)
-  2. enroll(user, true)         -- register ZSM + Passkeys+
-  3. verifyNumber(user)         -- the simulated carrier check (sna.js)
-
-Later Enter Game:
-  1. authenticate(user, true)   -- Passkeys+, no key
-
-Suspended Login (reactivation):
-  1. webauthnAuthenticate(user) -- touch iShield USB key
-  2. authenticate(user, true)   -- authenticate with Passkeys+
-  3. Clear suspension flag
-```
-
-### Enrolling an iShield USB Key
+### Writing a key
 
 ```javascript
-import { webauthnEnroll, hasStoredCredential } from './ishield.js';
+import { enrollKey } from './key-enroll.js';
 
-try {
-  await webauthnEnroll('alice');
-  // Credential ID is now stored in localStorage
-  console.log('iShield enrolled:', hasStoredCredential('alice')); // true
-} catch (err) {
-  if (err.name === 'NotAllowedError') {
-    // User cancelled or timed out
-  } else if (err.name === 'SecurityError') {
-    // Not running on HTTPS or localhost
-  } else if (err.name === 'InvalidStateError') {
-    // Key already registered for this user
-  }
-}
+const result = await enrollKey({ phone: '9135551235', displayName: '(913) 555-1235' });
+// result.entry.id          -- the credential id
+// result.entry.uvAtCreate  -- true when the key verified the user (its PIN)
+// result.warnings          -- anything that would break retrieval
 ```
 
-The WebAuthn options are configured specifically for cross-platform USB keys:
+The create options are the measured ones, with one change made on 2026-10-21:
 
 ```javascript
 authenticatorSelection: {
-  authenticatorAttachment: 'cross-platform', // USB keys, not platform (TouchID/FaceID)
-  userVerification: 'discouraged',           // iShield is touch-only, no PIN
-  residentKey: 'discouraged'
-}
+  authenticatorAttachment: 'cross-platform', // a roaming USB key, not Touch ID
+  residentKey: 'required',                   // discoverable: the key stores the number
+  userVerification: 'required'               // the key's PIN
+},
+attestation: 'none',
+hints: ['security-key'],
+extensions: { credProps: true }
 ```
 
-### Authenticating with an iShield USB Key
+`user.id` is the phone number as UTF-8, so a get on any phone reads it straight back out of the user handle. A production RP would use random opaque bytes mapped to the number on the server.
+
+Because verification is required, the browser makes the user set a PIN on a key that has none and asks for it on every touch after that, on every device. A page can require verification; it cannot set, read or size the PIN. The iShield's minimum is four digits.
+
+### Reading a key
 
 ```javascript
 import { webauthnAuthenticate } from './ishield.js';
 
-const result = await webauthnAuthenticate('alice');
+const result = await webauthnAuthenticate('9135551235');
 if (result.success) {
-  // result.clientDataHash -- SHA-256 hex of clientDataJSON
-  // result.signatureHex   -- hex-encoded raw signature bytes
-} else {
-  // result.error -- the Error object
-  if (result.error?.name === 'NotAllowedError') {
-    // User cancelled or timed out
-  }
+  // result.credentialId      -- which credential answered
+  // result.authenticatedUser -- the user handle as text (the phone number)
+  // result.challenge         -- what we sent, base64url
+  // result.clientDataHash    -- SHA-256 hex of clientDataJSON
+  // result.signatureHex      -- the signature, hex
+  // result.userVerified      -- the PIN was entered
+  // result.signCount         -- the key's counter
+} else if (result.error?.name === 'NotAllowedError') {
+  // cancelled, timed out, wrong PIN, or nothing on the key for this site
 }
 ```
 
-### Credential Storage
+The get sends an **empty `allowCredentials` list**, so the key answers with whatever discoverable credential it holds for this site and the app learns who it is from the user handle. That is what lets a phone that has never seen the key read it. The app then checks that the handle names the User ID on screen, adopting the key's spelling of the number.
 
-iShield credential IDs are stored in `localStorage` under the key `fido2_credential:<username>`:
-
-```json
-{ "id": "<base64url-encoded credential ID>", "createdAt": "2025-01-15T..." }
-```
-
-This allows `webauthnAuthenticate()` to target the specific credential during `navigator.credentials.get()` via the `allowCredentials` parameter.
-
-### Suspension Mechanism
-
-The demo uses `localStorage` flags to track device suspension:
+### Recording keys
 
 ```javascript
-import { isSuspended, setSuspended } from './ishield.js';
+import { recordVerification, associateKey, markLost, activeKey, refusedKey } from './key-records.js';
 
-// Suspend: require iShield to reactivate
-setSuspended('alice', true);
+// Setup: the first key this browser sees for the user becomes the associated key
+const { outcome, record } = recordVerification(user, result);   // 'associated' | 'verified' | 'refused' | 'unknown'
 
-// Check suspension
-if (isSuspended('alice')) {
-  // Show "Reactivate" flow instead of normal login
-}
+// The user reports the key lost: it is refused from now on
+markLost(user);
 
-// Clear suspension after successful iShield + Passkeys+ auth
-setSuspended('alice', false);
+// Recovery: a replacement with the same number, a different credential id
+const swap = associateKey(user, result);   // 'associated' | 'same' | 'refused'
+swap.previous;                             // the key it replaced, now marked 'replaced'
 ```
+
+Records live in `localStorage` under `ishield_keys:<user>`, newest first, with `associatedAt`, `lastVerifiedAt`, `lostAt` and `replacedAt` as ISO dates. There is no backend, so a second phone has its own list.
+
+---
+
+## 6. API Reference
+
+### umfa.js Exports
+
+#### `initializeZSMClient(user)`
+
+Creates or reuses the `UMFAClient` for a user. Must be called before the other functions. Awaits the config and the SDK's WASM initialization.
+
+| Param | Type | Description |
+|-------|------|-------------|
+| `user` | `string` | The user identifier (`consumer_id`) |
+
+**Returns:** `Promise<UMFAClient>`
 
 ---
 
@@ -469,55 +432,26 @@ setSuspended('alice', false);
 
 Clears the cached `UMFAClient` instance. Call on logout.
 
-| Param | Type | Description |
-|-------|------|-------------|
-| (none) | | |
-
 **Returns:** `void`
-
-```javascript
-resetClient(); // Call on logout
-```
 
 ---
 
 #### `checkAllEnrollment(user)`
 
-Checks whether the user has ZSM and Passkeys+ credentials enrolled on this device. Calls the SDK's `checkAllEnrollments()` internally.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `user` | `string` | Username to check |
+Calls the SDK's `checkAllEnrollments()`; returns its status object (see Step 3), or `false` on error.
 
 **Returns:** `Promise<object | false>`
-
-```javascript
-{
-  hasZSMCred: true,       // ZSM share exists in IndexedDB
-  hasRemotePasskey: true   // Passkeys+ credential on server
-}
-```
-
-Returns `false` on error or if not enrolled.
-
-```javascript
-await initializeZSMClient('alice');
-const status = await checkAllEnrollment('alice');
-if (status && status.hasZSMCred && status.hasRemotePasskey) {
-  // Device is trusted, user can authenticate
-}
-```
 
 ---
 
 #### `enroll(user, usingPasskeysPlus?)`
 
-Enrolls the user with ZSM and optionally Passkeys+.
+Enrolls the user with ZSM and Passkeys+.
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `user` | `string` | | Username to enroll |
-| `usingPasskeysPlus` | `boolean` | `false` | If `true`, enrolls both ZSM and Passkeys+ |
+| `user` | `string` | | User identifier |
+| `usingPasskeysPlus` | `boolean \| string` | `false` | `true` is the SDK's `'preferred'` mode, `false` is `'prevented'`; the strings `'required'`, `'preferred'`, `'discouraged'`, `'prevented'` pass through |
 
 **Returns:** `Promise<object | false | Error>`
 
@@ -529,24 +463,11 @@ Enrolls the user with ZSM and optionally Passkeys+.
 
 On success, `validateToken()` is called automatically before returning.
 
-```javascript
-await initializeZSMClient('alice');
-const result = await enroll('alice', true);
-if (result && result !== false && !(result instanceof Error)) {
-  // Enrollment succeeded
-}
-```
-
 ---
 
 #### `authenticate(user, usingPasskeysPlus?)`
 
-Authenticates the user with ZSM and optionally Passkeys+.
-
-| Param | Type | Default | Description |
-|-------|------|---------|-------------|
-| `user` | `string` | | Username to authenticate |
-| `usingPasskeysPlus` | `boolean` | `false` | If `true`, uses Passkeys+ for authentication |
+Authenticates the user with ZSM and Passkeys+. Same modes as `enroll`.
 
 **Returns:** `Promise<object>` with the following shapes:
 
@@ -571,257 +492,133 @@ Authenticates the user with ZSM and optionally Passkeys+.
 
 On success, `validateToken()` is called automatically before returning.
 
-```javascript
-await initializeZSMClient('alice');
-const auth = await authenticate('alice', true);
-if (auth.success) {
-  // User is authenticated
-  // auth.credential contains the raw credential
-  // auth.challengeData?.challenge is the hash (for display)
-}
-```
+---
+
+#### `challengeDataFrom(credential)`
+
+The `challengeData` above, from any credential object the SDK returned, so an `enroll()` result can be displayed the same way. `undefined` when the credential carries no response.
+
+**Returns:** `Promise<{challenge: string, signedChallenge: string} | undefined>`
 
 ---
 
 #### `validateToken(userId, token)`
 
-Validates an authentication or enrollment token with the Ideem server.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `userId` | `string` | Username the token was issued for |
-| `token` | `object` | Token object from `enroll()` or `authenticate()` |
+Validates an authentication or enrollment token with the Ideem server. Called automatically by `enroll()` and `authenticate()`.
 
 **Returns:** `Promise<boolean>` -- `true` if the server returned a 2xx response.
-
-Called automatically by `enroll()` and `authenticate()`. You generally do not need to call this directly unless you obtain a token through other means.
-
-```javascript
-const isValid = await validateToken('alice', credential);
-```
 
 ---
 
 ### ishield.js Exports
 
-#### `webauthnEnroll(user)`
+#### `webauthnAuthenticate(user)`
 
-Enrolls an iShield USB key for a user via raw WebAuthn (`navigator.credentials.create()`).
+The open get below, with an expected user: a user handle that does not match is logged, not failed, and the caller decides. An empty `user` is a failure.
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `user` | `string` | Username. Used as WebAuthn `user.name` and localStorage key. |
-
-**Returns:** `Promise<void>` -- resolves on success.
-
-**Throws:** The original WebAuthn error on any failure:
-- `NotAllowedError` -- user cancelled or timed out
-- `SecurityError` -- not running on HTTPS or localhost
-- `InvalidStateError` -- key already registered for this user
-
-```javascript
-try {
-  await webauthnEnroll('alice');
-} catch (err) {
-  console.error(err.name, err.message);
-}
-```
+**Returns:** `Promise<object>` -- see `webauthnIdentify`.
 
 ---
 
-#### `webauthnAuthenticate(user)`
+#### `webauthnIdentify({ userVerification = 'required' })`
 
-Authenticates a user with their enrolled iShield USB key via raw WebAuthn (`navigator.credentials.get()`). The get is `webauthnIdentify()` below; this wrapper takes the expected username and logs a mismatch with the key's user handle (the caller decides what to do with it).
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `user` | `string` | The expected username. Compared with the user handle the key returns; empty is a failure. |
-
-**Returns:** `Promise<object>`
+Asks whichever key is present who it is: `navigator.credentials.get()` with an empty `allowCredentials` list, `hints: ['security-key']`, and user verification required.
 
 **Success:**
 ```javascript
 {
   success: true,
-  clientDataHash: '7a3f...',     // SHA-256 hex of clientDataJSON
-  signatureHex: 'a1b2c3...',     // hex-encoded raw signature bytes
-  authenticatedUser: '9135551235' // the key's user handle as text, or null
+  credentialId: 'K7f...',          // base64url
+  authenticatedUser: '9135551235', // the user handle as text, or null
+  challenge: 'o2L...',             // base64url
+  at: '2026-10-21T20:06:44.000Z',
+  clientDataHash: '7a3f...',
+  signatureHex: 'a1b2c3...',
+  userPresent: true,
+  userVerified: true,
+  signCount: 7
 }
 ```
 
-**Failure:**
-```javascript
-{
-  success: false,
-  error: Error  // The original Error object
-}
-```
-
-```javascript
-const result = await webauthnAuthenticate('alice');
-if (result.success) {
-  console.log('Signature:', result.signatureHex);
-}
-```
+**Failure:** `{ success: false, error: Error }`. A platform authenticator answering instead of the key is a failure with a message that says so.
 
 ---
 
-#### `webauthnIdentify()`
+#### `bufferToBase64url(buffer)`, `base64urlToBuffer(text)`, `hashSHA256(text)`
 
-Asks whichever iShield key is present who it is: the same open get (empty `allowCredentials`, `userVerification: 'discouraged'`, `hints: ['security-key']`) with no expected username. The identity comes back in `authenticatedUser`, the user handle the registration page wrote onto the key. `partner.html` calls this directly. Same result shapes as `webauthnAuthenticate`, minus the empty-user failure.
-
-```javascript
-const result = await webauthnIdentify();
-if (result.success && result.authenticatedUser) {
-  console.log('The key belongs to', result.authenticatedUser);
-}
-```
+Encoding helpers used across the modules.
 
 ---
 
-#### `hasStoredCredential(user)`
+### key-records.js Exports
 
-Checks if a FIDO2 credential is stored in localStorage for this user.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `user` | `string` | Username to check |
-
-**Returns:** `boolean`
-
-```javascript
-if (hasStoredCredential('alice')) {
-  // User has an enrolled iShield key on this device
-}
-```
+| Function | Description |
+|----------|-------------|
+| `loadKeys(user)` / `saveKeys(user, list)` / `clearKeys(user)` | The list, newest first |
+| `activeKey(user)` | The key this browser accepts, or `null` |
+| `findKey(user, id)` / `refusedKey(user, id)` | A record by credential id; `refusedKey` answers only for a lost or replaced one |
+| `recordVerification(user, assertion, now?)` | A get at setup or sign-in: `'associated'`, `'verified'`, `'refused'` or `'unknown'` |
+| `associateKey(user, assertion, now?)` | A replacement: `'associated'` (with `previous`), `'same'` or `'refused'` |
+| `markLost(user, now?)` | The lost report; returns the record or `null` |
 
 ---
 
-#### `isSuspended(user)`
+### sna.js Exports
 
-Checks if the user's device is currently suspended.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `user` | `string` | Username to check |
-
-**Returns:** `boolean`
-
----
-
-#### `setSuspended(user, value)`
-
-Sets or clears the suspension flag for a user's device.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `user` | `string` | Username |
-| `value` | `boolean` | `true` to suspend, `false` to clear |
-
-**Returns:** `void`
+| Function | Description |
+|----------|-------------|
+| `verifyNumber(phone, { scenario, onStep, speed, signal })` | Plays the simulated check; resolves to `{ match, checkId, code, reason, verifiedAt, steps }` |
+| `isNumberVerified(user)` / `getNumberVerification(user)` | The per-device marker a successful check leaves |
+| `setNumberVerified(user, result)` / `clearNumberVerified(user)` | Write or forget it |
+| `SNA_STEPS`, `SNA_SCENARIOS` | The six steps the page draws, and `success`, `nomatch`, `unsupported` |
 
 ---
 
-#### `bufferToBase64url(buffer)`
+### key-enroll.js Exports
 
-Converts an `ArrayBuffer` to a base64url-encoded string.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `buffer` | `ArrayBuffer` | Raw bytes to encode |
-
-**Returns:** `string`
-
----
-
-#### `base64urlToBuffer(base64url)`
-
-Converts a base64url-encoded string back to an `ArrayBuffer`.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `base64url` | `string` | base64url-encoded string |
-
-**Returns:** `ArrayBuffer`
-
----
-
-#### `hashSHA256(input)`
-
-Computes SHA-256 hash of a string, returns hex.
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `input` | `string` | String to hash |
-
-**Returns:** `Promise<string>` -- hex-encoded SHA-256 digest.
-
-**Throws:** `TypeError` if input is not a string.
-
----
-
-#### Storage Key Constants
-
-| Constant | Value | Usage |
-|----------|-------|-------|
-| `FIDO2_STORAGE_PREFIX` | `'fido2_credential:'` | localStorage key prefix for credential IDs |
-| `SUSPENDED_STORAGE_PREFIX` | `'passkeys_suspended:'` | localStorage key prefix for suspension flags |
+| Function | Description |
+|----------|-------------|
+| `enrollKey({ phone, displayName })` | The create; returns `{ entry, rpId, checks, ceremonyOk, warnings, ok }` and throws what WebAuthn throws |
+| `createOptions(...)` / `enrollmentWarnings(entry, ceremonyOk)` | The options and the checks, as pure functions |
+| `loadEnrollments()` / `saveEnrollments(list)` | The `ishield_enrollments` list the create excludes against |
+| `detectBrowser()` | `{ label, chromium, desktop }` from UA Client Hints or the user agent string |
+| `ERROR_HINTS` | Friendlier text for the DOMException names |
 
 ---
 
 ## 7. Architecture
 
-### Project Structure
-
 ```
-Demo-swissbit/
-  ishield.js           -- Raw WebAuthn for iShield USB keys (zero SDK deps)
-  umfa.js              -- ZSM + Passkeys+ integration (wraps @ideem SDKs)
-  sna.js               -- Simulated Silent Network Authentication (no DOM, no network)
-  app.js               -- Demo UI orchestration (wires modules to DOM)
-  state.js             -- Simple reactive state class (demo utility, not for production)
-  index.html           -- Single-page HTML with five screens
-  register.html/.js    -- Registration page: camera scan of the badge QR (BarcodeDetector or the
-                          vendored jsQR), lookup by confirmation number or a form, the iShield
-                          create, then a QR into the demo with ?userid=<digits>
-  key-enroll.js        -- The discoverable create that puts a phone number on an iShield key, as a
-                          function for register.js (the measured options; fido-test.js defaults to them)
-  partner.html/.js     -- Partner booth: a shared password, a strip of partner tiles that hides once one
-                          is chosen, then Identify reads the User ID off an iShield key and the sponsor's
-                          preset and custom point buttons move the balance through the user API, each
-                          move tagged with the booth's name as its partner; the refreshment booths are
-                          self-service, one button that awards +50 once per key
-                          and shows the attendee's name, phone number and a QR code to the demo site
-  partners/            -- The tile logos (RSA, Swissbit, HID; google.png only for the sponsor strips)
-                          and the Twemoji ice cream, popcorn and bubbles (the oxygen bar)
-  landing.html/.css    -- Conference landing page: neon sign, a Login link, and a Leader Board button
-                          switched off until the party (a tap shows a note; the page's only script);
-                          landing.css is the hero alone
-  party.css            -- The "Death to Passwords" party theme (background photo, top bar, sponsor
-                          strip, translucent card), scoped to body.party; landing.html and index.html
-  landing/             -- The entry photo, neon sign and FIDO Alliance logo
-  api/db.js            -- Vercel function: proxy to the user API (/db/*)
-  api/exchange.js      -- Vercel function: P2P Contact Exchange matchmaker (/api/exchange)
-  zsm_app_config.json  -- Ideem application credentials
-  build.js             -- Copies SDK files from node_modules to vendor/
-  vendor/              -- Vendored SDK files (served as static assets)
-  package.json         -- npm dependencies
-  vercel.json          -- Vercel deployment config
-  fido-test.html/.js   -- Raw WebAuthn test page for hardware keys (create/get options, result checks)
-  dev-server.mjs       -- Local server: static files, /db proxy, /api/exchange, test-page result log
-  docs/                -- iShield test findings (ishield-pinless-discoverable.md), the user
-                          API's measured behaviour (user-api.md) and its Postman collection
+app.js / register.js / fido-test.js       page glue, DOM, screens, dialogs
+   |         |              |
+   |         +---- key-enroll.js   the discoverable create that writes a key
+   |         |          |     |
+   |         +---- webauthn-util.js <-+     CBOR decoder, authenticator-data parser, RP-side checks
+   |                     |
+   +---- umfa.js         |                  Ideem UMFAClient wrapper; the only module that imports the SDK
+   |        |            |
+   +---- ishield.js <----+                  the raw WebAuthn get; zero SDK deps; base64url + SHA-256 helpers
+   |
+   +---- key-records.js                     the keys a browser has associated, lost, replaced; no DOM
+   |
+   +---- sna.js                             simulated Silent Network Authentication; no DOM, no network
 ```
 
-### Module Dependency Graph
+- `ishield.js`, `umfa.js`, `key-records.js` and `sna.js` never touch the DOM. Keep UI concerns in the page scripts.
+- `umfa.js` loads `zsm_app_config.json` at module init and caches one `UMFAClient` per `consumer_id`.
+- `state.js` is a classic (non-module) script exposing a global `State` Proxy; the demo only uses `STATE.loginID` and `STATE.reset()`.
+- `vendor/` is built from `node_modules` by `npm run build` and is git-ignored.
 
-```
-app.js
-  |-- imports --> ishield.js   (webauthnEnroll, webauthnAuthenticate, hasStoredCredential, ...)
-  |-- imports --> umfa.js      (initializeZSMClient, checkAllEnrollment, enroll, authenticate, ...)
-  |-- imports --> sna.js       (verifyNumber, isNumberVerified, setNumberVerified, SNA_STEPS, ...)
-                    |
-                    |-- imports --> @ideem/zsm-client-sdk  (UMFAClient)
-                    |-- imports --> @ideem/plugins.passkeys-plus  (side-effect)
-                    |-- imports --> ishield.js  (hashSHA256 only -- a pure crypto utility)
-```
+---
+
+## 8. Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Every touch asks for a PIN | The key has a PIN, and the create requires verification | Expected since 2026-10-21. A key with any PIN is asked for it by every browser whatever the page says. |
+| Desktop Chrome: "Set up a new PIN" fails on the iShield | A Chrome/iShield quirk seen in the September tests (CTAP `0x37`) | Set the PIN once with the libfido2 CLI (`fido2-token -S`), or enroll in Safari. See `docs/ishield-pinless-discoverable.md`. |
+| A passkey answers instead of the key | A password manager stepped in front of the security-key prompt | The app refuses it and says so; pick the USB key in the prompt. The SDK reports `isUsingPasswordManager` when `navigator.credentials.get` has been replaced. |
+| The phone cannot find the credential | The key was written on another origin (localhost, a tunnel) | Credentials are bound to the RP ID (hostname). Enroll on the deployment the phone will open. |
+| `NotAllowedError` with no prompt at all | The page did not have focus, or the gesture was lost | Every ceremony sits directly behind a button tap; keep it that way. |
+| `enroll` returns an Error about the passkey portion | `'required'` mode and the passkey sheet was cancelled | Tap again; the mode is deliberate. |
+| Reset Device, then setup asks for the key again | Reset wipes the phone's records, the share and the markers | Expected. The passkey still exists on the server, so the enroll authenticates it rather than creating a second one. |

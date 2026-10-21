@@ -1,27 +1,25 @@
 /**
- * key-enroll.js -- The discoverable create that puts a phone number on an
- * iShield Key, for register.html
+ * key-enroll.js -- The discoverable create that puts a phone number on a
+ * FIDO USB key, for register.html
  *
- * One ceremony: a WebAuthn create with the attendee's phone number as user.id,
- * stored on the key as a DISCOVERABLE credential, so that later, on any other
- * device, a get with an empty allowCredentials list hands the number back
- * after a touch -- no PIN, no account picker, nothing typed.
+ * One ceremony: a WebAuthn create with the phone number as user.id, stored
+ * on the key as a DISCOVERABLE credential, so that later, on the user's own
+ * phone, a get with an empty allowCredentials list hands the number back
+ * after the key's PIN and a touch -- no account picker, nothing typed.
  *
- * THE OPTIONS ARE THE MEASURED ONES (docs/ishield-pinless-discoverable.md),
- * the ones the retired booth page (enroll.js) built inline and fido-test.js
- * (the key tester) defaults to:
+ * THE OPTIONS:
  *   - residentKey: 'required'            the key must store the credential and
  *                                        the user handle, or an empty-list get
  *                                        can never find it
- *   - userVerification: 'discouraged'    touch only; the retrieval devices are
- *                                        strangers' phones, so no PIN entry
- *   - credentialProtectionPolicy:        level 1, sent WITHOUT
- *     'userVerificationOptional'         enforceCredentialProtectionPolicy --
- *                                        Chrome rejects that combination as
- *                                        inconsistent (NotSupportedError).
- *                                        Without it the browser picks a level
- *                                        that hides the credential from a
- *                                        PIN-less empty-list get.
+ *   - userVerification: 'required'       the key's PIN protects the credential
+ *                                        (the customer's rule, 2026-10-21). The
+ *                                        browser makes the user set a PIN on a
+ *                                        key that has none and asks for it on
+ *                                        every touch afterwards, on every
+ *                                        device. The key's minimum is four
+ *                                        digits; a page can require
+ *                                        verification but cannot set, read or
+ *                                        size the PIN.
  *   - hints: ['security-key']            WebAuthn L3: skip the platform passkey
  *                                        UI and go straight to the USB key.
  *                                        Advisory, and needs Chrome 128+.
@@ -30,23 +28,20 @@
  *   - attestation: 'none'                nothing here checks a metadata
  *                                        statement, so don't ask for one
  *
- * This is the only copy of these options in the repo since the booth page
- * was retired (2026-10-12) in favour of register.html; fido-test.js has its
- * own defaults for the tester's controls.
- *
- * RUN THE CREATE IN SAFARI ON A MAC. Desktop Chrome refuses to create a
- * discoverable credential until the key has a PIN, and once the key has a
- * PIN every retrieval device demands it -- which kills the demo. detectBrowser
- * below is how a page finds out it is in desktop Chrome and says so.
+ * The demo's keys were PIN-less until 2026-10-21 (docs/ishield-pinless-
+ * discoverable.md has those measurements). With verification required the
+ * credProtect extension no longer matters -- every get verifies the user --
+ * so it is not sent. Desktop Chrome, which refused the PIN-less create, may
+ * now be able to run this one, since the PIN it insisted on is what the
+ * create asks for; that is not yet measured (the doc's section 7).
  *
  * STORAGE: localStorage 'ishield_enrollments', one record per credential
  * written from this browser, so a second create for the same number on the
- * same key is excluded. The retired booth page wrote the same list, so its
- * records still count. Clearing it removes nothing from any key.
+ * same key is excluded. Clearing it removes nothing from any key.
  */
 
 import { base64urlToBuffer, bufferToBase64url } from './ishield.js';
-import { CRED_PROTECT_LEVELS, parseAuthenticatorData, checkCeremony } from './webauthn-util.js';
+import { parseAuthenticatorData, checkCeremony } from './webauthn-util.js';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -55,10 +50,10 @@ import { CRED_PROTECT_LEVELS, parseAuthenticatorData, checkCeremony } from './we
 /** localStorage key holding the array of enrollment records. */
 export const STORAGE_KEY = 'ishield_enrollments';
 
-/** How long the browser waits for a key touch before failing. */
+/** How long the browser waits for the PIN and a key touch before failing. */
 export const TIMEOUT_MS = 120000;
 
-export const RP_NAME = 'Demo Swissbit';
+export const RP_NAME = 'FIDO Key Recovery Demo';
 
 /** COSE algorithm identifiers offered at create time, in preference order. */
 export const COSE_ALGORITHMS = { [-7]: 'ES256', [-8]: 'EdDSA', [-257]: 'RS256' };
@@ -66,11 +61,11 @@ export const PUB_KEY_CRED_PARAMS = [-7, -8, -257].map(alg => ({ type: 'public-ke
 
 /** Friendlier explanations for the DOMException names WebAuthn throws. */
 export const ERROR_HINTS = {
-  NotAllowedError: 'Cancelled, timed out, or the key refused. In desktop Chrome this is also what a discoverable credential without a PIN looks like.',
+  NotAllowedError: 'Cancelled, timed out, the PIN was wrong or not entered, or the key refused.',
   InvalidStateError: 'This key already holds a credential for that phone number. It is already enrolled.',
   SecurityError: 'The RP ID is not valid for this origin. Open the page over HTTPS or http://localhost, not an IP address.',
   NotSupportedError: 'The key supports none of the requested algorithms or options.',
-  ConstraintError: 'The key cannot store a discoverable credential under these settings.',
+  ConstraintError: 'The key cannot store a discoverable credential under these settings, or could not verify the user.',
   AbortError: 'The operation was aborted.'
 };
 
@@ -97,7 +92,7 @@ export function saveEnrollments(list) {
 
 /**
  * The publicKey member of the create call. user.id is the phone number as
- * UTF-8, so a get on any other device reads it straight back out of the user
+ * UTF-8, so a get on the user's phone reads it straight back out of the user
  * handle. A production RP would use random opaque bytes here: the spec says
  * user.id must not contain personal information. Carrying the number IS the
  * demo.
@@ -114,34 +109,27 @@ export function createOptions({ phone, displayName, challenge, rpId, excludeCred
       authenticatorAttachment: 'cross-platform',  // roaming USB key, not Touch ID
       residentKey: 'required',                    // discoverable: the key stores the phone number
       requireResidentKey: true,                   // Level 1 compat; ignored where residentKey is understood
-      userVerification: 'discouraged'             // touch only, no PIN
+      userVerification: 'required'                // the key's PIN, set now if the key has none
     },
     attestation: 'none',
     hints: ['security-key'],                      // Level 3: go straight to the security key UI
     extensions: {
-      credProps: true,                            // report whether the credential is really discoverable
-      // Level 1, and deliberately not enforced: Chrome rejects
-      // enforceCredentialProtectionPolicy alongside userVerificationOptional
-      // as inconsistent. The result shows the level the key applied.
-      credentialProtectionPolicy: 'userVerificationOptional'
+      credProps: true                             // report whether the credential is really discoverable
     }
   };
 }
 
 /**
  * Anything that would break the retrieval flow, as one line each, so the page
- * can call it out while the attendee and the key are still there.
+ * can call it out while the key is still plugged in.
  */
 export function enrollmentWarnings(entry, ceremonyOk = true) {
   const warnings = [];
   if (entry.rk === false) {
-    warnings.push('The key did not make this credential discoverable, so another device will not find it. Enroll again in Safari on a Mac.');
+    warnings.push('The key did not make this credential discoverable, so a phone will not find it. Encode the key again in another browser.');
   }
-  if (entry.uvAtCreate) {
-    warnings.push('This key verified the user, which means it has a PIN set. Every retrieval device will ask for that PIN. Reset the key to make it PIN-less.');
-  }
-  if (entry.credProtect && entry.credProtect !== 1) {
-    warnings.push(`The key applied credProtect level ${entry.credProtect} (${CRED_PROTECT_LEVELS[entry.credProtect] || 'unknown'}). Level 1 is what lets a touch-only lookup see the credential.`);
+  if (entry.uvAtCreate === false) {
+    warnings.push('The key did not verify the user, so no PIN protects this credential. Set a PIN on the key and encode it again.');
   }
   if (!ceremonyOk) {
     warnings.push('The challenge, origin or RP ID check did not match. Treat this enrollment as suspect.');
@@ -150,10 +138,10 @@ export function enrollmentWarnings(entry, ceremonyOk = true) {
 }
 
 /**
- * Writes a discoverable credential holding the phone number to the inserted
- * key, records it in the shared enrollment list, and reports what the key
- * actually did: whether the credential is really discoverable, which
- * credProtect level it applied, and whether it stayed PIN-less.
+ * Writes a discoverable, PIN-protected credential holding the phone number
+ * to the inserted key, records it in the shared enrollment list, and reports
+ * what the key actually did: whether the credential is really discoverable
+ * and whether the user was verified (the PIN was entered).
  *
  * A second credential for the same number on the same key is refused through
  * excludeCredentials, built from the list. Transports are left off so the
@@ -164,7 +152,7 @@ export function enrollmentWarnings(entry, ceremonyOk = true) {
  *
  * @returns {Promise<{ entry: object, rpId: string, checks: object, ceremonyOk: boolean, warnings: string[], ok: boolean }>}
  */
-export async function enrollKey({ phone, displayName, firstName = '', lastName = '' }) {
+export async function enrollKey({ phone, displayName = phone }) {
   const rpId = location.hostname;
   const challenge = crypto.getRandomValues(new Uint8Array(32));
   const excludeCredentials = loadEnrollments()
@@ -183,8 +171,6 @@ export async function enrollKey({ phone, displayName, firstName = '', lastName =
   const entry = {
     id: cred.id,
     phone,
-    firstName,
-    lastName,
     displayName,
     rk: cred.getClientExtensionResults().credProps?.rk ?? null,
     credProtect: authData.extensions?.credProtect ?? null,
@@ -194,13 +180,14 @@ export async function enrollKey({ phone, displayName, firstName = '', lastName =
     aaguid: authData.aaguid ?? null,
     uvAtCreate: authData.flags.UV,
     signCount: authData.signCount,
+    challenge: bufferToBase64url(challenge),
     createdAt: new Date().toISOString()
   };
   saveEnrollments([entry, ...loadEnrollments().filter(c => c.id !== entry.id)]);
 
   const ceremonyOk = checks.type && checks.challenge && checks.origin && checks.rpIdHash;
   const warnings = enrollmentWarnings(entry, ceremonyOk);
-  return { entry, rpId, checks, ceremonyOk, warnings, ok: entry.rk !== false && !entry.uvAtCreate && ceremonyOk };
+  return { entry, rpId, checks, ceremonyOk, warnings, ok: entry.rk !== false && entry.uvAtCreate !== false && ceremonyOk };
 }
 
 /**
@@ -222,10 +209,9 @@ export function shareEnrollment(entry, rpId) {
 
 /**
  * Names the browser actually rendering the page and says whether it is
- * desktop Chromium, which cannot do a PIN-less discoverable create. UA Client
- * Hints first, because a user agent string can report a version that never
- * shipped; WebKit and Gecko do not implement them, so the string is the
- * fallback.
+ * desktop Chromium. UA Client Hints first, because a user agent string can
+ * report a version that never shipped; WebKit and Gecko do not implement
+ * them, so the string is the fallback.
  *
  * @returns {Promise<{ label: string, chromium: boolean, desktop: boolean }>}
  */

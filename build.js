@@ -41,20 +41,12 @@ const packages = [
     ]
   },
   {
-    // QR code generator for register.js and app.js -- turns the enrolled phone number into a
-    // link the attendee's own phone can scan. ESM, so the page imports
-    // ./vendor/qrcode-generator/dist/qrcode.mjs directly.
+    // QR code generator for register.js -- turns the phone number just
+    // written to a key into a link the user's own phone can scan. ESM, so the
+    // page imports ./vendor/qrcode-generator/dist/qrcode.mjs directly.
     name: 'qrcode-generator',
     files: ['README.md'],
     directories: ['dist']
-  },
-  {
-    // QR code reader for register.js -- decodes the badge QR from camera
-    // frames in browsers without a native BarcodeDetector (Safari). A UMD
-    // bundle, so register.html loads ./vendor/jsqr/dist/jsQR.js as a classic
-    // script and the page reads window.jsQR.
-    name: 'jsqr',
-    files: ['README.md', 'dist/jsQR.js']
   }
 ];
 

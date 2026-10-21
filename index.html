@@ -3,10 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FIDO Key + ZSM | Hardware WebAuthn Demo</title>
+  <title>FIDO Key Recovery | Swissbit + Ideem</title>
   <link rel="stylesheet" href="./style.css">
-  <!-- The party theme (landing.html's look) layered over the demo's styles -->
-  <link rel="stylesheet" href="./party.css">
   <script type="importmap">
   {
     "imports": {
@@ -16,32 +14,22 @@
   }
   </script>
 </head>
-<body class="party">
+<body>
 
-  <!-- Top bar and sponsor strip, as on landing.html (party.css) -->
-  <div class="topbar">
-    <div class="container">
-      <a class="brand" href="./landing.html">Authenticate 2026 • Death to Passwords</a>
+  <!-- Header -->
+  <header class="header">
+    <div class="logo-row">
+      <img src="./swissbit_logo.png" alt="Swissbit" class="logo logo-swissbit">
+      <span class="logo-divider"></span>
+      <img src="./ideem-logo.png" alt="Ideem" class="logo logo-ideem">
     </div>
-  </div>
-  <section class="sponsors" aria-label="Partners and sponsors">
-    <div class="sponsor-track">
-      <img src="./partners/swissbit.png" alt="Swissbit" class="logo-swissbit">
-      <img src="./partners/hid.png" alt="HID" class="logo-hid">
-      <img src="./partners/google.png" alt="Google" class="logo-google">
-      <img src="./partners/rsa.png" alt="RSA" class="logo-rsa">
-      <img src="./ideem-logo.png" alt="Ideem" class="logo-ideem">
-    </div>
-  </section>
-
-  <!-- The demo: header, card and footer, centred as style.css lays them out -->
-  <div class="page">
-
+    <p class="subtitle">USB FIDO key, phone number and passkey, with key recovery</p>
+  </header>
 
   <!-- Main Card -->
   <main class="card">
 
-    <!-- Username — always visible -->
+    <!-- User ID — always visible -->
     <div class="username-row">
       <label for="username">User ID</label>
       <!-- The password-manager opt-outs are deliberate. iOS and 1Password
@@ -51,90 +39,81 @@
            page. name= is what WebKit weighs most, hence the neutral one; the
            data-* attributes are the documented opt-outs for 1Password,
            LastPass, Bitwarden and Dashlane. -->
-      <input type="text" id="username" name="ishield-user-id" placeholder="Enter your user ID"
+      <input type="text" id="username" name="ishield-user-id" placeholder="Enter your phone number"
              autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
              inputmode="numeric"
              data-1p-ignore data-lpignore="true" data-bwignore data-form-type="other">
     </div>
 
-    <!-- LOGIN screen — logged out. Enter Game reads the device: a bound one
-         logs in on the passkey alone; an unbound one is walked through the
-         four steps the guide dialog below names. -->
+    <!-- LOGIN screen — logged out. Continue reads the device: a phone that
+         holds a ZSM share for the number signs in on the passkey alone; one
+         that holds none is walked through the key touch, the number check
+         and the passkey enrollment (the guide dialog below names them). -->
     <div class="screen active" id="LOGIN">
-      <button id="login-btn" class="btn btn-primary" disabled>Enter Game</button>
+      <button id="login-btn" class="btn btn-primary" disabled>Continue</button>
+      <p class="login-hint" id="login-hint" hidden></p>
     </div>
 
-    <!-- ACTIONS screen — logged in. The balance is the hero: the points the
-         booths credit and Authenticate adds to. View Contacts opens the
-         CONTACTS screen below, no step-up. View Leaderboard is a plain link
-         to the owner's dashboard (every user in the same database, by
-         balance), opened in a new tab so the game session here survives. -->
-    <div class="screen" id="ACTIONS">
-      <div id="default-actions">
-        <div id="balance-display" class="balance-card" hidden>
-          <span class="balance-label">Balance</span>
-          <b id="balance-value" class="balance-value">--</b>
-        </div>
-        <div class="action-grid">
-          <button class="btn btn-action" data-action="authenticate">Authenticate<span class="btn-points"></span></button>
-          <button class="btn btn-action" data-action="p2p-contact-exchange">P2P Contact Exchange<span class="btn-points"></span></button>
-          <button class="btn btn-action" id="view-contacts-btn" type="button">View Contacts</button>
-          <a class="btn btn-action" href="https://sbit.authconcepts.com:3099/dashboard.html" target="_blank" rel="noopener">View Leaderboard</a>
-        </div>
+    <!-- HOME screen — logged in. The key this phone has associated and when,
+         the four factors, the actions, and the challenge blocks. -->
+    <div class="screen" id="HOME">
 
-        <div id="action-status" class="flash" role="status" aria-live="polite"></div>
+      <!-- The key: the newest record, then the ones before it -->
+      <section class="key-card" aria-labelledby="key-card-title">
+        <p class="key-card-title" id="key-card-title">USB FIDO Key</p>
+        <dl class="key-rows" id="key-current" hidden>
+          <div class="key-row"><dt>Credential</dt><dd id="key-id" class="key-mono">--</dd></div>
+          <div class="key-row"><dt>Associated</dt><dd id="key-associated">--</dd></div>
+          <div class="key-row"><dt>Last verified</dt><dd id="key-verified">--</dd></div>
+          <div class="key-row"><dt>Status</dt><dd id="key-status">--</dd></div>
+        </dl>
+        <p class="key-none" id="key-none" hidden>No FIDO key is associated on this phone.</p>
+        <ul class="key-history" id="key-history" hidden></ul>
+      </section>
+
+      <!-- The factors, as the number check's own list draws them -->
+      <ul class="sna-indicators factors" id="home-factors">
+        <li class="sna-indicator" id="factor-ishield"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">USB Key</span><span class="sna-indicator-state" id="factor-ishield-state"></span></li>
+        <li class="sna-indicator" id="factor-number"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Phone# Verified</span><span class="sna-indicator-state" id="factor-number-state"></span></li>
+        <li class="sna-indicator" id="factor-device"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Cryptographic Device Binding</span><span class="sna-indicator-state" id="factor-device-state"></span></li>
+        <li class="sna-indicator" id="factor-passkey"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Passkey Enrolled</span><span class="sna-indicator-state" id="factor-passkey-state"></span></li>
+      </ul>
+
+      <!-- Actions. Authenticate is a fresh passkey step-up. I lost this key
+           reports the key lost. Associate new FIDO key is the recovery:
+           passkey, the number check again, then the replacement key. -->
+      <div class="action-grid">
+        <button class="btn btn-action" id="authenticate-btn" type="button">Authenticate</button>
+        <button class="btn btn-action" id="lost-key-btn" type="button">I lost this key</button>
+        <button class="btn btn-action btn-action-wide" id="associate-key-btn" type="button">Associate new FIDO key</button>
+      </div>
+      <div id="action-status" class="flash" role="status" aria-live="polite"></div>
+
+      <!-- Challenge blocks: what each factor's last ceremony produced. The
+           rows are cloned from the template below by app.js. -->
+      <div class="challenge-display" id="key-challenge-display" hidden>
+        <div class="challenge-section-header"><span class="challenge-section-label">USB Key</span></div>
+        <div class="challenge-rows"></div>
+        <p class="challenge-meta"></p>
+      </div>
+      <div class="challenge-display" id="passkey-challenge-display" hidden>
+        <div class="challenge-section-header"><span class="challenge-section-label">Passkey (ZSM + Passkeys+)</span></div>
+        <div class="challenge-rows"></div>
+        <p class="challenge-meta"></p>
+      </div>
+      <div class="challenge-display" id="sna-challenge-display" hidden>
+        <div class="challenge-section-header"><span class="challenge-section-label">Silent Network Auth</span></div>
+        <div class="challenge-rows"></div>
+        <p class="challenge-meta"></p>
       </div>
 
       <button id="logout-btn" class="btn btn-secondary">Log Out</button>
     </div>
 
-    <!-- EXCHANGE screen — P2P Contact Exchange. The same screen serves both
-         sides: the initiator shows a QR and waits; the responder arrives via
-         ?exchange=<code>, is asked to confirm, verifies with their passkey,
-         and sees the result here. -->
-    <div class="screen" id="EXCHANGE">
-      <p class="exchange-title" id="exchange-title"></p>
-      <div class="exchange-qr" id="exchange-qr-section" hidden>
-        <div class="exchange-qr-code" id="exchange-qr" role="img"
-             aria-label="QR code the other person scans to exchange contacts"></div>
-      </div>
-      <div id="exchange-status" class="flash" role="status" aria-live="polite"></div>
-      <div class="contact-card" id="exchange-card" hidden>
-        <img id="exchange-photo" class="contact-photo" alt="" hidden>
-        <div class="contact-name" id="exchange-name"></div>
-        <div class="contact-phone" id="exchange-phone"></div>
-        <div class="contact-id" id="exchange-userid"></div>
-      </div>
-      <!-- Whether the exchange reached the user database, what this side
-           earned for the contact, then this attendee's contacts from it
-           (renderContacts, once complete) -->
-      <p class="exchange-saved" id="exchange-saved" hidden></p>
-      <p class="exchange-saved" id="exchange-points" hidden></p>
-      <div class="exchange-contacts" id="exchange-contacts" hidden>
-        <p class="exchange-contacts-title">Your contacts</p>
-        <ul class="contact-list" id="exchange-contact-list"></ul>
-      </div>
-      <p class="exchange-note" id="exchange-note" hidden></p>
-      <button id="exchange-confirm" class="btn btn-primary" hidden>Confirm sharing contact info</button>
-      <button id="exchange-done" class="btn btn-primary">Done</button>
-    </div>
-
-    <!-- CONTACTS screen — the attendees this user has exchanged contacts
-         with (P2P Contact Exchange), read from the user database, and an
-         "Email me the list" link that hands them to the phone's mail app
-         through mailto: (openContacts / contactsMailto in app.js). -->
-    <div class="screen" id="CONTACTS">
-      <p class="exchange-title">Your contacts</p>
-      <p id="contacts-status" class="contacts-status"></p>
-      <ul class="contact-list" id="contacts-list" hidden></ul>
-      <a id="contacts-email" class="btn btn-primary" href="#" hidden>Email me the list</a>
-      <button id="contacts-back" class="btn btn-secondary" type="button">Back</button>
-    </div>
-
-    <!-- SNA screen — simulated Silent Network Authentication, run once per
-         device after the ZSM enrollment and before the first ACTIONS screen.
-         app.js draws the step list from SNA_STEPS in sna.js, and the
-         indicator list is what the attendee ends on. -->
+    <!-- SNA screen — simulated Silent Network Authentication: at setup, and
+         again before a replacement key is associated. app.js draws the step
+         list from SNA_STEPS in sna.js, and the indicator list is what the
+         check ends on. -->
     <div class="screen" id="SNA">
       <p class="sna-title" id="sna-title">Verify phone number with telco carrier</p>
       <p class="sna-subtitle" id="sna-subtitle" hidden></p>
@@ -155,38 +134,30 @@
       <button id="sna-continue" class="btn btn-primary" hidden>Continue</button>
     </div>
 
-    <!-- Status pills — always visible. The four indicators the enrollment
-         ends on, in that order, then the Passkeys+ state that drives Suspend. -->
-    <div class="status-pills">
-      <span class="pill">USB Key: <b id="ishield-status">--</b></span>
-      <span class="pill">Phone# Verified: <b id="number-status">--</b></span>
-      <span class="pill">Device Bound: <b id="zsm-status">--</b></span>
-      <span class="pill">Passkey: <b id="passkey-status">--</b></span>
-      <span class="pill">Passkeys+: <b id="passkeys-plus-status">--</b></span>
-    </div>
-
-    <!-- Flash message for enrollment feedback -->
+    <!-- Flash message for ceremony feedback -->
     <div id="flash-status" class="flash" role="status" aria-live="polite"></div>
 
   </main>
 
-  <!-- Confirmation Popup -->
-  <div id="confirm-popup" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="popup-message">
-    <div class="popup-card">
-      <p id="popup-message"></p>
-      <div class="popup-buttons">
-        <button id="popup-cancel" class="btn btn-secondary">Cancel</button>
-        <button id="popup-continue" class="btn btn-primary">Continue</button>
-      </div>
-    </div>
-  </div>
+  <!-- One row of a challenge block: a label, a preview, a copy button, and
+       the full value underneath. -->
+  <template id="challenge-row-template">
+    <details class="challenge-row">
+      <summary><span class="challenge-row-label"></span>: <span class="challenge-value"></span><button type="button" class="btn-copy" aria-label="Copy value">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+  </svg>
+</button></summary>
+      <pre class="challenge-full"></pre>
+    </details>
+  </template>
 
-  <!-- Guide dialog: what Enter Game is about to do on a phone that is not
-       bound yet, and the handoff from the USB key to the passkey. One
-       button; its tap is also the user gesture the WebAuthn prompt that
-       follows needs. app.js fills it from ONBOARDING_GUIDE and PASSKEY_GUIDE.
-       The second button shows only for KEY_SKIP_GUIDE (a key that did not
-       answer: continue without it, or try again; since 2026-10-19). -->
+  <!-- Guide dialog: what Continue is about to do on a phone that is not set
+       up yet, the handoff to the passkey, the lost-key report, and the
+       steps of associating a replacement key. The tap on its button is also
+       the user gesture the WebAuthn prompt that follows needs. app.js fills
+       it from the guide constants. -->
   <div id="guide-popup" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="guide-title">
     <div class="popup-card">
       <p id="guide-title" class="popup-title"></p>
@@ -195,19 +166,15 @@
       <p id="guide-note" class="popup-note" hidden></p>
       <div class="popup-buttons">
         <button id="guide-start" class="btn btn-primary">Start</button>
-        <button id="guide-alt" class="btn btn-secondary" hidden>Try the key again</button>
+        <button id="guide-alt" class="btn btn-secondary" hidden></button>
       </div>
     </div>
   </div>
 
   <!-- Footer -->
   <footer class="footer">
-    <!-- Hidden since 2026-10-19 (the owner: no suspension in this demo). The code behind it stays. -->
-    <button id="suspend-device" class="btn btn-warning-small" disabled hidden>Suspend Device</button>
     <button id="reset-device" class="btn btn-danger-small">Reset Device</button>
   </footer>
-
-  </div>
 
   <!-- Screen reader announcements -->
   <div id="screen-announcer" class="sr-only" aria-live="assertive"></div>

@@ -78,7 +78,7 @@ const UV_HINTS = {
 
 const CP_HINTS = {
   '': 'Chrome picks the level itself. For discoverable credentials its choice hides them from a Get with an empty list unless the key verifies you (PIN).',
-  userVerificationOptional: 'Level 1. The key offers this credential to a Get with an empty list after just a touch, no PIN. This is what the conference flow needs.',
+  userVerificationOptional: 'Level 1. The key offers this credential to a Get with an empty list after just a touch, no PIN. The app\'s keys carry a PIN now (verification required), so the level no longer matters to them.',
   userVerificationRequired: 'Level 3. The key never uses this credential without a PIN or fingerprint.'
 };
 

@@ -194,10 +194,13 @@ export async function checkAllEnrollment(user) {
 /**
  * Enrolls the user with ZSM and optionally Passkeys+.
  *
- * This is step 2 of the Trust Device flow (after webauthnEnroll() from
- * ishield.js). It creates the user's ZSM secret share in IndexedDB and,
- * if usingPasskeysPlus is true, registers a Passkeys+ credential with the
- * Ideem server.
+ * This is the last step of setting a phone up (after the key touch and the
+ * number check in app.js). It creates the user's ZSM secret share in
+ * IndexedDB and, if usingPasskeysPlus is truthy, registers a Passkeys+
+ * credential with the Ideem server. On a browser that holds no share for a
+ * user whose passkey the server already knows, the SDK's 'required' mode
+ * authenticates that passkey and rebuilds the share here instead of
+ * registering a second passkey.
  *
  * RETURN VALUES:
  *   - Credential object (truthy): enrollment succeeded
@@ -214,9 +217,9 @@ export async function checkAllEnrollment(user) {
  *   ZSM and Passkeys+ (the SDK's "preferred" mode: a cancelled passkey falls
  *   back to a ZSM-only enrollment). If false, enrolls ZSM only. The SDK's
  *   string modes pass through unchanged; 'required' makes the passkey
- *   mandatory, which the demo page uses to rebind a browser from a passkey
- *   the server already holds (bindWithPasskey in app.js), where a cancel has
- *   to fail rather than enroll without proof.
+ *   mandatory, which the demo page uses everywhere (since 2026-10-21): the
+ *   passkey is the recovery factor, so a cancelled sheet has to fail rather
+ *   than leave a device bound without one.
  * @returns {Promise<object|false|Error>} The enrollment credential, false if
  *   already enrolled, or an Error on failure.
  */
@@ -296,16 +299,7 @@ export async function authenticate(user, usingPasskeysPlus = false) {
   const credential = result?.credential ?? result;
 
   // Extract challenge data from response for display (does not affect auth outcome)
-  let challengeData;
-  if (credential?.response) {
-    try {
-      const challenge = await hashSHA256(JSON.stringify(credential.response.clientDataJSON));
-      const signedChallenge = JSON.stringify(credential.response.signature);
-      challengeData = { challenge, signedChallenge };
-    } catch (err) {
-      console.warn('[authenticate] Could not extract challenge data:', err.message);
-    }
-  }
+  const challengeData = await challengeDataFrom(credential);
 
   const output = JSON.stringify(credential);
   console.log('[authenticate] Output credential:', output.substring(0, 200) + (output.length > 200 ? '...' : ''));
@@ -316,6 +310,28 @@ export async function authenticate(user, usingPasskeysPlus = false) {
   }
 
   return { success: true, credential, challengeData };
+}
+
+/**
+ * The challenge and signed challenge a credential carries, for display: the
+ * SHA-256 of its clientDataJSON and its signature as JSON. authenticate()
+ * attaches this to its result; the page calls it on an enroll() result too,
+ * so the Passkey block can show the enrollment ceremony as well. Undefined
+ * when the credential carries no response or it cannot be read.
+ *
+ * @param {object} credential - A credential object the SDK returned.
+ * @returns {Promise<{challenge: string, signedChallenge: string}|undefined>}
+ */
+export async function challengeDataFrom(credential) {
+  if (!credential?.response) return undefined;
+  try {
+    const challenge = await hashSHA256(JSON.stringify(credential.response.clientDataJSON));
+    const signedChallenge = JSON.stringify(credential.response.signature);
+    return { challenge, signedChallenge };
+  } catch (err) {
+    console.warn('[challengeDataFrom] Could not extract challenge data:', err.message);
+    return undefined;
+  }
 }
 
 /**

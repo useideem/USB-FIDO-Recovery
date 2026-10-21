@@ -1,11 +1,5 @@
 {
   "buildCommand": "npm run build",
   "outputDirectory": ".",
-  "installCommand": "npm install",
-  "redirects": [
-    { "source": "/enroll.html", "destination": "/register.html", "permanent": false }
-  ],
-  "rewrites": [
-    { "source": "/db/:path*", "destination": "/api/db?path=:path*" }
-  ]
+  "installCommand": "npm install"
 }

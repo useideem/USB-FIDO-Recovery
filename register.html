@@ -3,131 +3,54 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Register a Badge | Swissbit + Ideem</title>
+  <title>Enroll a FIDO Key | Swissbit + Ideem</title>
   <link rel="stylesheet" href="./style.css">
-  <!-- The party theme (landing.html's look) layered over the shared styles -->
-  <link rel="stylesheet" href="./party.css">
 </head>
-<body class="party">
+<body>
 
   <!-- Header -->
-  <!-- Top bar and sponsor strip, as on landing.html (party.css) -->
-  <div class="topbar">
-    <div class="container">
-      <a class="brand" href="./landing.html">Authenticate 2026 • Death to Passwords</a>
-    </div>
-  </div>
-  <section class="sponsors" aria-label="Partners and sponsors">
-    <div class="sponsor-track">
-      <img src="./partners/swissbit.png" alt="Swissbit" class="logo-swissbit">
-      <img src="./partners/hid.png" alt="HID" class="logo-hid">
-      <img src="./partners/google.png" alt="Google" class="logo-google">
-      <img src="./partners/rsa.png" alt="RSA" class="logo-rsa">
-      <img src="./ideem-logo.png" alt="Ideem" class="logo-ideem">
-    </div>
-  </section>
-
-  <!-- The page: heading, card and footer, centred as style.css lays them out -->
-  <div class="page">
-
   <header class="header">
-    <p class="subtitle">Register with your conference badge</p>
+    <div class="logo-row">
+      <img src="./swissbit_logo.png" alt="Swissbit" class="logo logo-swissbit">
+      <span class="logo-divider"></span>
+      <img src="./ideem-logo.png" alt="Ideem" class="logo logo-ideem">
+    </div>
+    <p class="subtitle">Enroll a FIDO USB key</p>
   </header>
 
   <main class="card rg-card">
 
-    <!-- Flash message: scanner state, lookup outcome, camera errors -->
+    <!-- Flash message: what to do with the key, and how the create went -->
     <div id="flash-status" class="flash" role="status" aria-live="polite"></div>
 
-    <!-- REGISTER: one button opens the camera and starts looking for a QR -->
-    <section class="rg-step" id="register-section" aria-labelledby="register-title">
-      <h2 class="ft-section-title" id="register-title">Step 1: Scan your badge</h2>
-      <p class="ft-hint">Register opens this computer's camera. Hold the QR code on your badge up to it; the scan stops on its own once the code is read.</p>
-      <button id="register-btn" type="button" class="btn btn-primary">Register</button>
-
-      <!-- The live camera preview, shown only while scanning -->
-      <div class="rg-scanner" id="scanner" hidden>
-        <div class="rg-viewfinder">
-          <video id="camera" autoplay playsinline muted></video>
-          <div class="rg-frame" aria-hidden="true"></div>
-        </div>
-        <p class="ft-hint rg-decoder" id="decoder-info"></p>
-        <button id="cancel-scan-btn" type="button" class="btn btn-secondary">Cancel</button>
-      </div>
-
-      <!-- No badge, or one that will not scan: the same form as for an
-           unknown badge, with nothing to look up first. -->
-      <button id="manual-entry-btn" type="button" class="btn btn-secondary">Manually Enter User</button>
-    </section>
-
-    <!-- NEW ATTENDEE: the badge ID is not in the database, or there is no
-         badge, so take the details here and add them. Shown in place of the
-         details section; the title and hint are set by the script. -->
-    <section class="rg-step rg-new" id="new-attendee-section" aria-labelledby="new-attendee-title" hidden>
-      <h2 class="ft-section-title" id="new-attendee-title">Step 2: Enter your details</h2>
-      <p class="ft-hint" id="new-attendee-hint">Fill in the details and press Register to add them.</p>
-      <form id="new-attendee-form" class="rg-form" novalidate>
-        <div class="en-row">
-          <div class="ft-field">
-            <label class="ft-label" for="new-first-name">First name</label>
-            <input type="text" id="new-first-name" class="ft-input" autocomplete="given-name" spellcheck="false" required>
-          </div>
-          <div class="ft-field">
-            <label class="ft-label" for="new-last-name">Last name</label>
-            <input type="text" id="new-last-name" class="ft-input" autocomplete="family-name" spellcheck="false" required>
-          </div>
-        </div>
+    <!-- ENCODE: the phone number goes onto the inserted key as a
+         discoverable, PIN-protected credential (key-enroll.js) -->
+    <section class="rg-step" id="enroll-section" aria-labelledby="enroll-title">
+      <h2 class="ft-section-title" id="enroll-title">Step 1: Enroll the key</h2>
+      <form id="enroll-form" class="rg-form" novalidate>
         <div class="ft-field">
-          <label class="ft-label" for="new-phone">Phone number</label>
-          <input type="tel" id="new-phone" class="ft-input" placeholder="9135551234" autocomplete="tel" inputmode="numeric" required>
+          <label class="ft-label" for="phone">Phone number</label>
+          <input type="tel" id="phone" class="ft-input" placeholder="9135551234" autocomplete="tel" inputmode="numeric" spellcheck="false" required>
         </div>
-        <div class="en-row">
-          <div class="ft-field">
-            <label class="ft-label" for="new-email">Email</label>
-            <input type="email" id="new-email" class="ft-input" autocomplete="email" spellcheck="false">
-          </div>
-          <div class="ft-field">
-            <label class="ft-label" for="new-company">Company</label>
-            <input type="text" id="new-company" class="ft-input" autocomplete="organization" spellcheck="false">
-          </div>
-        </div>
-        <button id="new-attendee-btn" type="submit" class="btn btn-primary">Register</button>
+        <p class="ft-hint">Insert the FIDO key, then press Enroll Key. The browser asks for the key's PIN, or has you set one if the key has none, then asks for a touch. The number is stored on the key as digits only; it is the User ID on the main page.</p>
+        <button id="enroll-btn" type="submit" class="btn btn-primary">Enroll Key</button>
       </form>
-      <p class="ft-hint rg-form-note">The phone number is stored as digits only; it is what the demo uses as the User ID.</p>
-    </section>
-
-    <!-- ATTENDEE: what the user database holds for the scanned ID -->
-    <section class="rg-step rg-attendee" id="attendee-section" aria-labelledby="attendee-title" hidden>
-      <h2 class="ft-section-title" id="attendee-title">Step 2: Your details</h2>
-      <dl class="rg-details">
-        <div class="rg-detail"><dt>Name</dt><dd id="attendee-name">--</dd></div>
-        <div class="rg-detail"><dt>Phone</dt><dd id="attendee-phone">--</dd></div>
-        <div class="rg-detail"><dt>Email</dt><dd id="attendee-email">--</dd></div>
-        <div class="rg-detail"><dt>Company</dt><dd id="attendee-company">--</dd></div>
-        <div class="rg-detail"><dt>Badge ID</dt><dd id="attendee-id" class="rg-mono">--</dd></div>
-      </dl>
-      <p class="en-warning" id="attendee-note" hidden></p>
-    </section>
-
-    <!-- ENROLL: put the number on an FIDO key (key-enroll.js) -->
-    <section class="rg-step" id="enroll-section" aria-labelledby="enroll-title" hidden>
-      <h2 class="ft-section-title" id="enroll-title">Step 3: Enroll FIDO Key</h2>
-      <p class="ft-hint">Insert the attendee's FIDO key, press the button, then touch the key when the browser asks. The key must have no PIN set: a PIN-less key answers with a touch on any phone, while a key with a PIN asks every one of them for it.</p>
-      <!-- Shown only in desktop Chrome, which cannot do a PIN-less create -->
-      <p class="en-warning" id="chrome-warning" hidden>
-        Desktop Chrome makes the key set a PIN before it will store a passkey, and every
-        device that reads the key afterwards will demand that PIN. Enroll in Safari instead.
-      </p>
-      <button id="enroll-key-btn" type="button" class="btn btn-primary">Enroll FIDO Key</button>
       <!-- Anything that would break retrieval stays in the open -->
       <div id="enroll-warnings"></div>
+      <!-- What the key did -->
+      <dl class="rg-details" id="enroll-result" hidden>
+        <div class="rg-detail"><dt>User ID</dt><dd id="result-phone">--</dd></div>
+        <div class="rg-detail"><dt>Credential</dt><dd id="result-credential" class="rg-mono">--</dd></div>
+        <div class="rg-detail"><dt>PIN verified</dt><dd id="result-uv">--</dd></div>
+        <div class="rg-detail"><dt>Enrolled</dt><dd id="result-when">--</dd></div>
+      </dl>
     </section>
 
-    <!-- SCAN: the number now on the key, handed to the demo on the attendee's phone -->
+    <!-- SCAN: the number now on the key, handed to the main page on the user's phone -->
     <section class="ft-section en-qr rg-step" id="qr-section" aria-labelledby="qr-title" hidden>
-      <h2 class="ft-section-title" id="qr-title">Step 4: Scan with your phone</h2>
-      <p class="ft-hint">The demo opens with your phone number as the User ID. Press <b>Enter Game</b> there and touch your FIDO key when the phone asks.</p>
-      <div class="en-qr-code" id="qr-code" role="img" aria-label="QR code that opens the demo for this phone number"></div>
+      <h2 class="ft-section-title" id="qr-title">Step 2: Scan with your phone</h2>
+      <p class="ft-hint">The main page opens with the phone number as the User ID. Press <b>Continue</b> there, enter the key's PIN and touch the key when the phone asks, verify the number, then enroll the passkey.</p>
+      <div class="en-qr-code" id="qr-code" role="img" aria-label="QR code that opens the main page for this phone number"></div>
       <a class="en-qr-link" id="qr-link" href="#" target="_blank" rel="noopener"></a>
       <p class="en-warning en-qr-note" id="qr-note" hidden></p>
     </section>
@@ -137,15 +60,9 @@
   <!-- Footer -->
   <footer class="footer ft-footer">
     <p class="ft-hint" id="browser-info">Checking which browser this is...</p>
-    <a href="./index.html">Login</a>
-    <a href="./partner.html">Partner booth</a>
+    <a href="./index.html">Main page</a>
   </footer>
 
-  </div>
-
-  <!-- jsQR is a UMD bundle that sets window.jsQR; the module below reads it
-       when the browser has no BarcodeDetector of its own. -->
-  <script src="./vendor/jsqr/dist/jsQR.js"></script>
   <script type="module" src="./register.js"></script>
 
 </body>

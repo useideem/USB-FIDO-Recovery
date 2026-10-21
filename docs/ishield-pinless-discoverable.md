@@ -2,29 +2,36 @@
 
 What we learned on 2026-09-15 and 2026-09-16 while testing whether a Swissbit
 iShield key can identify its owner on someone else's phone with a touch, no PIN
-and no typing. Captured here so it can be folded into the demo later.
+and no typing. The measurements stand; what the app asks of the key has since
+changed.
 
-**Status:** works on every meeting device tested -- iPhone (Safari and Chrome),
-Android (Chrome 152) and Mac Safari. Blocked in desktop Chrome unless the page
-sends credential IDs.
+**Status of the measurements:** the PIN-less open get works on every phone
+tested -- iPhone (Safari and Chrome), Android (Chrome 152) -- and in Mac
+Safari. Blocked in desktop Chrome unless the page sends credential IDs.
+
+**Status of the app (2026-10-21):** the keys carry a PIN now. The customer's
+rule for the recovery demo is a four-digit PIN on the key, so the create on
+the registration page requires user verification and every get asks for the
+PIN. Section 7 says what that changes and what has not been measured yet.
+The conference flow these tests served, and the rules in section 4, describe
+the PIN-less world and are kept as the record of it.
 
 ---
 
-## 1. The conference flow
+## 1. The flow these tests were for
 
-1. **Booth.** Staff put a passkey on an attendee's iShield key. The attendee's
-   phone number is stored as the account ID (`user.id`).
-2. **Meeting.** Later, the attendee plugs their key into another attendee's
-   phone. The same web app reads the phone number from the key, shows it, and
-   the key owner confirms with a touch.
-3. **Constraints.** The attendee never enters a PIN and never types their phone
-   number. Booth setup is done by staff; meeting devices are whatever phones
-   attendees own (iPhone and Android).
+The September tests served a conference demo: staff wrote an attendee's phone
+number onto a key at a booth, and later the attendee plugged the key into
+another attendee's phone, which read the number back with a touch, no PIN and
+nothing typed. The reading phone had no prior knowledge of the key, so the
+credential had to be **discoverable** (stored on the key) and looked up with
+an **empty `allowCredentials` list**, unless the app supplied the issued
+credential IDs (see section 5).
 
-The meeting step has no prior knowledge of the key, so the credential must be
-**discoverable** (stored on the key), and it is looked up with an **empty
-`allowCredentials` list**, unless the app supplies the issued credential IDs
-(see section 5).
+The recovery demo this repository holds now keeps the same mechanics: the
+registration page writes the number onto the key, and the user's own phone
+reads it back with the empty-list get. Two things differ. The phone is the
+user's, not a stranger's, and the key has a PIN.
 
 ---
 
@@ -207,6 +214,10 @@ Chrome for Android has required Android 10 or newer since Chrome 139 (August
 
 ## 4. Rules for the demo
 
+These are the PIN-less rules the September tests produced. Rules 1 and 2 no
+longer apply to this app: since 2026-10-21 its keys carry a PIN and the create
+requires verification (section 7). The rest still hold.
+
 1. **Never set a PIN on a demo key.** A PIN makes every browser ask for it.
    Reset a key that has one (section 6).
 2. **Create at the booth with Safari on a Mac** (or the libfido2 CLI). Not
@@ -255,56 +266,44 @@ single Get can't cover a larger event. Options, none tested yet:
   failed Get and an extra touch.
 - Put a QR sticker with the credential ID on each key, and send just that ID.
 
-### Relation to the current demo code
+### Relation to the current code
 
-`ishield.js` today creates **non-discoverable** credentials and looks them up
-with the credential ID saved in `localStorage` on the enrolling device. A second
-device has no saved ID, so it can't find the key's credential. The approach
-above (discoverable credential plus server-stored IDs) fixes that.
+`key-enroll.js` holds the create (the registration page runs it), and
+`webauthnIdentify` in `ishield.js` holds the empty-list get (the main page
+runs it at setup and when a replacement key is associated). The get also
+returns the credential id that answered, which is how `key-records.js` tells
+a replacement key from the one that was reported lost.
 
-`enroll.html` was the first piece of that work: it enrolled attendees the way
-this document says to, independently of `ishield.js`. `register.html` replaced
-it on 2026-10-12 with the same create moved into `key-enroll.js`, and
-`/enroll.html` now redirects there. The retrieval side has since been switched
-over: `webauthnAuthenticate` in `ishield.js` sends an empty `allowCredentials`
-list.
+### Handing the user off to the main page
 
-### Handing the attendee off to the demo
-
-The booth Mac enrolls the key; the attendee then carries on with their own
-phone. The seam between the two is a query parameter:
+The registration machine writes the key; the user then carries on with their
+own phone. The seam between the two is a query parameter:
 
 ```
-https://authenticate26.vercel.app/?userid=9135551234
+https://<deployment>/?userid=9135551234
 ```
 
 `app.js` reads `?userid=` on load and puts it in the User ID field. The value
-is the bare digits, and nothing validates its shape.
-
-Enter Game then calls `webauthnAuthenticate` -- a **get**, which is the whole
-point of arriving from the booth. Somebody scanning the QR was enrolled a
-moment ago, so they are an existing user on a new device. (Until 2026-10-14 a
-**New** toggle also had to be off for that: New on routed to `trustDevice()`,
-whose `webauthnEnroll` **create** would have written a second credential for
-the same person to the key. The toggle and that path are gone; the demo page
-only ever reads a key now.)
+is the bare digits, and nothing validates its shape. Continue then calls
+`webauthnAuthenticate` -- a **get**, never a create: the main page only ever
+reads a key.
 
 ### The User ID on screen has to be the credential on the key
 
-`reconcileUserId` (`app.js`) settles it after every get. The key is the
-authority: it hands back the user handle stored in the credential, and:
+`reconcileUserId` (`app.js`) settles it after the setup get, and the same
+check guards the association get. The key is the authority: it hands back
+the user handle stored in the credential, and:
 
-- a **different identity** stops the flow -- the demo will not carry on under a
+- a **different identity** stops the flow -- the app will not carry on under a
   name the key never vouched for;
 - a **different spelling of the same number** (`913-555-1235`, `19135551235`)
   is accepted and the field is rewritten to the key's own spelling, so after a
   successful touch the two are literally equal. The digits rule is the same one
   `normalizePhone` in `register.js` applies on the way onto the key;
-- a credential that returns **no user handle** -- the old non-discoverable kind
-  `ishield.js` used to create -- leaves the typed value alone, because there is
+- a credential that returns **no user handle** stops the flow too; there is
   nothing to compare it against.
 
-Everything downstream (ZSM binding, the enrollment marker, `STATE.loginID`)
+Everything downstream (the key record, the ZSM binding, `STATE.loginID`)
 then keys off the key's spelling rather than whatever was typed.
 
 ### Password managers fight for that field
@@ -316,31 +315,18 @@ it, because the heuristics key off a field that looks like a username, and
 `id="username"` under a label reading "USER ID" is exactly that. `vercel.app`
 being a shared domain widens the match to any saved `*.vercel.app` login.
 
-What the field carries now: a neutral `name` (WebKit weighs `name` above `id`),
+What the field carries: a neutral `name` (WebKit weighs `name` above `id`),
 `inputmode="numeric"`, and the documented opt-outs `data-1p-ignore`,
-`data-lpignore`, `data-bwignore`, `data-form-type="other"`. Arriving from the
-QR also lands on the LOGIN screen, where `showScreen` already makes the field
-readonly -- and a readonly field is not offered autofill at all.
+`data-lpignore`, `data-bwignore`, `data-form-type="other"`.
 
-The parameter used to be `email`, a leftover from when the demo identified
-people by address. Nothing accepts that spelling any more, so a QR code
-generated before the rename lands on the demo with an empty field rather than
-a filled one.
-
-Once the credential is written *and* the database record is in place,
-`register.js` shows that URL as a QR code (`showQr`). Both conditions matter: a
-code for a number with no record behind it would open the demo on an empty
-account. The code is generated in the page from the vendored
-`qrcode-generator` package -- no image service sees the phone number -- at
-error-correction level M, which for this URL length comes out as a 33x33
-version-4 code. The value is percent-encoded even though digits never need it.
-
-The QR points at `location.origin`, so the code matches the origin the
-credential's RP ID is bound to. The exception is a page served from
-`localhost`, which no phone can reach: there it points at
-`PUBLIC_DEMO_ORIGIN`, the Vercel deployment. Enrolling through a tunnel
-produces tunnel URLs, which is correct -- those credentials belong to the
-tunnel hostname.
+The QR code on the registration page is generated in the page from the
+vendored `qrcode-generator` package -- no image service sees the phone number
+-- at error-correction level M. It points at `location.origin`, so the code
+matches the origin the credential's RP ID is bound to. The exception is a
+page served from `localhost`, which no phone can reach: there it points at
+`PUBLIC_DEMO_ORIGIN`, the deployment, and the page says the credential just
+written will not be found there. Encoding through a tunnel produces tunnel
+URLs, which is correct -- those credentials belong to the tunnel hostname.
 
 ---
 
@@ -366,7 +352,7 @@ tunnel hostname.
 
 | File | Purpose |
 |---|---|
-| `register.html`, `register.js`, `key-enroll.js` | Registration page, which replaced the booth page `enroll.html` on 2026-10-12: a badge scan or a short form puts the attendee's name and phone number on screen, then one button creates the discoverable credential with the settings proven above (`residentKey: required`, `userVerification: discouraged`, `credProtect` level 1 unenforced, `hints: ["security-key"]`, `attestation: none`) and `user.id` = the phone number's digits, so any other device reads it back from the user handle. `key-enroll.js` holds that create as a function. The page checks the result and warns on screen when the credential came back non-discoverable, when the key used a PIN (UV true), or when `credProtect` is not level 1 -- all three break retrieval, and the attendee is still standing there. Warns up front in desktop Chrome, which cannot do this create PIN-less. Run it in Safari on a Mac. The attendee is in the user database (`docs/user-api.md`) before the create, and on success the page shows a QR code that opens the demo with that number already filled in. |
+| `register.html`, `register.js`, `key-enroll.js` | Registration page: a phone number and one button, which creates the discoverable credential (`residentKey: required`, `userVerification: required` since 2026-10-21, `hints: ["security-key"]`, `attestation: none`, no credProtect extension) with `user.id` = the phone number's digits, so the user's phone reads it back from the user handle. `key-enroll.js` holds that create as a function. The page checks the result and warns on screen when the credential came back non-discoverable or when the key did not verify the user (no PIN). On success it shows the credential id, whether the PIN was used, and a QR code that opens the main page with that number already filled in. |
 | `webauthn-util.js` | The parsing `key-enroll.js` and the key tester share: the CBOR reader, authenticator data (flags, `signCount`, AAGUID, extension outputs such as `credProtect`), and the relying-party checks on `clientDataJSON` and `rpIdHash`. |
 | `fido-test.html`, `fido-test.js` | Raw WebAuthn test page: Create and Get with `residentKey`, `userVerification`, `credProtect` and allow-list choices (`attestation` is fixed at `none`, and both `userVerification` controls default to `discouraged` -- the PIN-less settings this demo needs). Parses authenticator data flags and extensions, verifies signatures, checks counters. The footer names the browser actually rendering the page, read from UA Client Hints rather than `navigator.userAgent` -- that is what caught the stale Chrome 101 above, whose user agent string reported a version it never shipped. |
 | `dev-server.mjs` | Local server (`node dev-server.mjs`, port 8080). Writes every page result to `.dev-logs/fido-test.jsonl` and keeps a shared list of issued credentials (`GET/POST /credentials`) in `.dev-logs/credentials.json`. `.dev-logs/` is git-ignored. |
@@ -401,3 +387,56 @@ fido2-token -I <device>               # capabilities (getInfo), PIN state
 - **Chrome's virtual authenticator** (DevTools protocol `WebAuthn.*`) is good
   for checking page logic, but it can't reproduce these results. It always
   reports UV when UV is configured and doesn't report `credProtect`.
+
+---
+
+## 7. The PIN change (2026-10-21)
+
+The recovery demo's customer asked for a four-digit PIN on the key. WebAuthn
+gives a page one lever for that: `userVerification: "required"`. The browser
+then makes the user set a PIN on a key that has none (the key's `minPINLength`
+is 4, section 3) and asks for it on every get afterwards, on every device. A
+page cannot set, read or size the PIN; "four digits" is what the user types
+when the browser asks.
+
+What changed in the code:
+
+- `createOptions` in `key-enroll.js` sends `userVerification: "required"` and
+  no `credentialProtectionPolicy`: with verification on every get, the
+  credProtect level no longer decides anything.
+- `webauthnIdentify` in `ishield.js` sends `userVerification: "required"` and
+  returns the UV flag, so the page can show that the PIN was entered. A key
+  with a PIN is asked for it by every browser whatever the page says
+  (section 2), so asking outright is only honest.
+- `enrollmentWarnings` flips: a create whose authenticator data has UV
+  **false** is the warning now (no PIN protects the credential).
+
+What the September measurements already say about a PIN'd key:
+
+- Safari (Mac, iOS) and Chrome on iOS prompt for the PIN on the empty-list
+  get and complete it (section 3, "If the key has a PIN").
+- Desktop Chrome prompts for the PIN on the empty-list get instead of
+  refusing it: the PIN was the capability it found missing. So desktop Chrome
+  can now read a key, which it could not in the PIN-less world.
+- Desktop Chrome's own PIN setup on the iShield failed with CTAP `0x37`
+  (`PinPolicyViolation`) for every PIN tried, `1234` included, while
+  python-fido2 set a PIN on the same key without trouble.
+
+What has not been measured:
+
+- **PIN setup through a browser.** Safari's "set a PIN" flow was never run,
+  and Chrome's failed. If neither browser can set the PIN, set it once with
+  the CLI and let the create merely require it:
+
+  ```sh
+  fido2-token -S <device>        # prompts for the new PIN, then confirms it
+  ```
+
+- **The PIN prompt on a phone with exactly one credential on the key**, end
+  to end through the main page's setup, on iPhone and Android.
+- **Desktop Chrome's discoverable create with a PIN already set** (it should
+  no longer open PIN setup, and the create should complete touch-and-PIN).
+
+Run these on the deployed origin with `fido-test.html` (set its Create
+controls to Discoverable and User verification Required) before the first
+real walkthrough.
