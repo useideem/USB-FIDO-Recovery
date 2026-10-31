@@ -8,29 +8,40 @@
  * primarily study ishield.js and umfa.js. This file is demo-specific and
  * handles screens, flash messages, dialogs, and event listeners.
  *
+ * THE STORY (the customer's flow, 2026-10-31): a bank ships the user a blank
+ * FIDO USB key. On their phone the user binds the number and the phone, then
+ * encodes the key themselves, creating its PIN. When the key is lost they say
+ * so in the app, the old key is refused, the bank ships another blank key,
+ * and after the passkey the user encodes that one.
+ *
  * FLOW:
  *   1. Continue       -- on a phone that holds a ZSM share for the number:
  *                        authenticate() with Passkeys+, nothing else. On a
- *                        phone that holds none (the user arriving from the
- *                        registration QR): a dialog naming the three steps,
- *                        the USB key touch with its PIN, whose User ID must
- *                        match the box, the simulated SNA number check
- *                        (sna.js), a dialog handing over to the passkey,
- *                        then enroll() with Passkeys+ in the SDK's required
- *                        mode (the same call rebinds a browser from a
- *                        passkey the server already knows)
- *   2. Home           -- the key this phone has associated and when, the four
+ *                        phone that holds none: a dialog naming the three
+ *                        steps, the simulated SNA number check (sna.js), a
+ *                        dialog handing over to the passkey, enroll() with
+ *                        Passkeys+ in the SDK's required mode (the same call
+ *                        rebinds a browser from a passkey the server already
+ *                        knows), then a dialog in front of the key: the
+ *                        WebAuthn create (key-enroll.js) that writes the
+ *                        verified number onto the blank key. The create
+ *                        requires user verification, so the browser has the
+ *                        user create the key's PIN, then touch it
+ *   2. Home           -- the key this phone encoded and when, the four
  *                        factors (USB Key, Phone# Verified, Device Bound,
  *                        Passkey), and the challenge each factor's last
  *                        ceremony produced; Authenticate is a fresh passkey
- *                        step-up
- *   3. I lost this key -- a dialog saying a note would go to corporate for a
- *                        replacement; the key is marked lost and refused
- *   4. Associate new FIDO key -- the recovery: the passkey again, the number
- *                        check again, then the replacement key (encoded on
- *                        the registration page with the same number) is read
- *                        and becomes the associated key; the one before is
- *                        marked replaced and refused
+ *                        step-up; Verify USB key is a get on the key, which
+ *                        is how a lost key is shown to be refused
+ *   3. I lost this key -- a dialog saying the bank would be notified and
+ *                        would ship a blank replacement; the key is marked
+ *                        lost and refused from then on
+ *   4. Encode new FIDO key -- the recovery: the passkey again, then the
+ *                        create on the blank replacement, with every key this
+ *                        phone knows excluded so a lost key that turns up is
+ *                        refused by the key itself; the new credential
+ *                        becomes the associated key and the one before is
+ *                        marked replaced
  *
  * Everything the app knows about a user's keys lives in this browser
  * (key-records.js): there is no backend. A second phone has its own list.
@@ -41,6 +52,7 @@
  */
 
 import { webauthnAuthenticate } from './ishield.js';
+import { enrollKey, ERROR_HINTS, COSE_ALGORITHMS } from './key-enroll.js';
 
 import {
   initializeZSMClient,
@@ -128,28 +140,14 @@ function sameUser(typed, fromKey) {
 }
 
 /**
- * Reconciles the User ID on screen with the identity the key just proved.
- * The key is the authority: it hands back the user handle stored in the
- * credential, and the screen has to agree with it.
- *
- * Returns null when they are different people, or when the key returned no
- * handle at all (then nothing vouches for the typed value); the caller stops
- * either way, and keyMismatchMessage says which it was. Otherwise it returns
- * the key's own spelling and writes it into the field, so after a successful
- * touch the User ID on screen IS the credential on the key.
+ * The flash when the key's user handle does not name the User ID on screen.
+ * The key is the authority on identity: it hands back the handle stored in
+ * the credential, and the signed-in User ID has to agree with it.
  */
-function reconcileUserId(typed, fromKey) {
-  if (!sameUser(typed, fromKey)) return null;
-  document.getElementById('username').value = fromKey;
-  localStorage.setItem('username', fromKey);
-  return fromKey;
-}
-
-/** The flash for a reconcileUserId that returned null. */
 function keyMismatchMessage(typed, fromKey) {
   return fromKey
     ? `This key belongs to "${fromKey}", but the User ID box says "${typed}". Enter the ID that matches the key, or use that person's key.`
-    : 'This key carries no User ID. Encode it on the registration page first.';
+    : 'This key carries no User ID for this site. A blank key is encoded from HOME.';
 }
 
 /** The flash for a key get that failed. */
@@ -160,9 +158,25 @@ function keyFailureMessage(error) {
     return 'A passkey answered instead of the key. A password manager may be stepping in front of the security-key prompt; use the USB key.';
   }
   if (name === 'NotAllowedError') {
-    return 'Cancelled, timed out, the PIN was wrong, or this key holds nothing for this site. Encode the key on the registration page first.';
+    return 'Cancelled, timed out, the PIN was wrong, or this key holds nothing for this site. A blank key is encoded from HOME.';
   }
   return message || 'USB key verification failed';
+}
+
+/**
+ * The flash for a key create that failed. InvalidStateError is the key
+ * refusing an excluded credential: it already holds one for this number
+ * that this phone knows, which after a loss means the lost key turned up.
+ */
+function encodeFailureMessage(error) {
+  const name = error?.name || '';
+  if (name === 'InvalidStateError') {
+    return 'This key is already encoded for this number on this phone. A key reported lost or replaced stays refused; insert the blank replacement key.';
+  }
+  if (name === 'NotAllowedError') {
+    return 'Cancelled, timed out, or the PIN was not created or entered. Insert the key and try again.';
+  }
+  return ERROR_HINTS[name] || error?.message || 'Encoding the key failed';
 }
 
 // ---------------------------------------------------------------------------
@@ -177,11 +191,11 @@ const ONBOARDING_GUIDE = {
   title: "Let's get your phone ready.",
   lead: 'We are going to do 3 things',
   steps: [
-    'Verify your FIDO USB Key with its PIN',
     'Verify your phone number with the carrier',
-    'Create a mobile device Passkey and bind this phone'
+    'Create a mobile device Passkey and bind this phone',
+    'Encode the FIDO USB Key from your bank and create its PIN'
   ],
-  note: 'Start with the USB FIDO Key',
+  note: 'Start with your phone number',
   button: 'Start'
 };
 
@@ -192,32 +206,42 @@ const PASSKEY_GUIDE = {
   button: 'Continue'
 };
 
+/**
+ * After the passkey at setup: the blank key is next. The tap on its button
+ * is the gesture the create needs, and the browser's own "create a PIN" step
+ * follows it.
+ */
+const ENCODE_KEY_GUIDE = {
+  title: 'Insert the FIDO USB Key from your bank',
+  lead: 'The key arrives blank. Your phone will ask you to create a PIN for it, then to touch it. The key is then encoded with your verified number.',
+  button: 'Encode the key'
+};
+
 /** The lost-key report. Escape, or the second button, leaves the key as it is. */
 const LOST_KEY_GUIDE = {
   title: 'Report this FIDO key lost',
-  lead: 'In this scenario a note would be sent to corporate for a new key to be sent to you. Until a replacement is associated, this key is no longer accepted on this phone.',
+  lead: 'In this scenario the bank would be notified and would send you a blank replacement key. Until a new key is encoded, this key is no longer accepted on this phone.',
   button: 'Report it lost',
   alt: 'Keep it'
 };
 
-/** In front of Associate new FIDO key: the three steps, then Start. */
-const ASSOCIATE_GUIDE = {
-  title: 'Associate a new FIDO key',
-  lead: 'We are going to do 3 things',
+/** In front of Encode new FIDO key: the two steps, then Start. */
+const ENCODE_NEW_GUIDE = {
+  title: 'Encode a new FIDO key',
+  lead: 'We are going to do 2 things',
   steps: [
     'Confirm with your mobile device Passkey',
-    'Verify your phone number with the carrier',
-    'Verify the new FIDO USB Key with its PIN'
+    'Encode the blank FIDO USB Key and create its PIN'
   ],
   note: 'Start with the Passkey',
   button: 'Start'
 };
 
-/** After the number check in the association: the new key is next. */
+/** After the passkey in the recovery: the blank replacement is next. */
 const NEW_KEY_GUIDE = {
   title: 'Insert the new FIDO USB Key',
-  lead: 'Enter its PIN and touch it when the phone asks. It must carry the same phone number.',
-  button: 'Touch the key'
+  lead: 'It arrives blank. Your phone will ask you to create a PIN for it, then to touch it. The key you reported lost stays refused.',
+  button: 'Encode the key'
 };
 
 let guideResolve = null;
@@ -282,7 +306,7 @@ const STATE = new State({
 
 // ---------------------------------------------------------------------------
 // Ceremony results -- what each factor's last ceremony produced, for the
-// challenge blocks on HOME: the key's get, the passkey's enroll or
+// challenge blocks on HOME: the key's create or get, the passkey's enroll or
 // authenticate, and the number check. Kept per User ID in sessionStorage so
 // a reload within the tab keeps them; Log Out and Reset Device clear them.
 // ---------------------------------------------------------------------------
@@ -309,7 +333,7 @@ function clearResults(user) {
   try { sessionStorage.removeItem(RESULTS_PREFIX + user); } catch (_) { /* nothing to clear */ }
 }
 
-/** The key get, as the USB Key block shows it. */
+/** The key get (purpose 'verify'), as the USB Key block shows it. */
 function keyResultFrom(result, purpose) {
   return {
     purpose,
@@ -320,6 +344,38 @@ function keyResultFrom(result, purpose) {
     userVerified: result.userVerified ?? null,
     signCount: result.signCount ?? null,
     at: result.at
+  };
+}
+
+/**
+ * The key create (purpose 'encode' at setup, 'replace' in the recovery), as
+ * the USB Key block shows it. A create with attestation 'none' signs nothing,
+ * so the block shows the public key the phone now holds instead.
+ */
+function encodeResultFrom({ entry }, purpose) {
+  return {
+    purpose,
+    credentialId: entry.id,
+    challenge: entry.challenge,
+    publicKey: entry.publicKey ?? null,
+    alg: entry.alg ?? null,
+    rk: entry.rk ?? null,
+    userVerified: entry.uvAtCreate ?? null,
+    signCount: entry.signCount ?? null,
+    at: entry.createdAt
+  };
+}
+
+/** The create's entry as key-records.js takes it. */
+function keyFromEnrollment({ entry }) {
+  return {
+    credentialId: entry.id,
+    authenticatedUser: entry.phone,
+    userVerified: entry.uvAtCreate ?? null,
+    signCount: entry.signCount ?? null,
+    publicKey: entry.publicKey ?? null,
+    alg: entry.alg ?? null,
+    encoded: true
   };
 }
 
@@ -337,9 +393,9 @@ async function passkeyResultFrom(credential, ceremony) {
 // ---------------------------------------------------------------------------
 // SNA — simulated Silent Network Authentication (sna.js)
 //
-// Runs at setup, after the key touch and before the passkey, and again
-// before a replacement key is associated (the customer's rule, 2026-10-21).
-// A sign-in on a phone that holds the marker never sees it.
+// Runs first at setup, before the passkey and the key (the customer's flow,
+// 2026-10-31; the recovery runs the passkey alone). A sign-in on a phone
+// that holds the marker never sees it.
 // ---------------------------------------------------------------------------
 const SNA_SCENARIO_KEY = 'snaScenario';
 
@@ -375,7 +431,7 @@ function takeSnaScenario() {
 /**
  * The number check gate. Resolves true at once when this phone already
  * verified the user's number, unless `force` asks for a fresh check (setup
- * and association do); otherwise puts the SNA screen up and resolves true
+ * does); otherwise puts the SNA screen up and resolves true
  * after a successful check and Continue. Nothing resolves it false now that
  * the screen has no Cancel; the callers still handle false.
  */
@@ -544,6 +600,7 @@ function renderKeyCard(user) {
   if (current) {
     $('key-id').textContent = shortId(current.id);
     $('key-id').title = current.id;
+    $('key-associated-label').textContent = current.encodedAt ? 'Encoded' : 'Associated';
     $('key-associated').textContent = formatWhen(current.associatedAt);
     $('key-verified').textContent = formatWhen(current.lastVerifiedAt);
     $('key-status').textContent = keyStatusText(current);
@@ -560,7 +617,7 @@ function renderKeyCard(user) {
     id.title = record.id;
     const detail = document.createElement('span');
     detail.className = 'key-history-detail';
-    detail.textContent = `associated ${formatWhen(record.associatedAt)} · ${keyStatusText(record)}`;
+    detail.textContent = `${record.encodedAt ? 'encoded' : 'associated'} ${formatWhen(record.associatedAt)} · ${keyStatusText(record)}`;
     li.append(id, detail);
     return li;
   }));
@@ -593,15 +650,23 @@ function renderChallengeBlock(id, rows, meta = '') {
 
 function renderChallengeBlocks(user) {
   const results = loadResults(user);
+  // The USB Key block: a create shows the challenge, the public key the
+  // phone now holds and the credential; a get shows the signed challenge.
   const key = results.key;
-  renderChallengeBlock('key-challenge-display', key ? [
+  const encoded = !!key && (key.purpose === 'encode' || key.purpose === 'replace');
+  renderChallengeBlock('key-challenge-display', !key ? [] : encoded ? [
+    { label: 'Challenge', value: key.challenge },
+    { label: 'Public key', value: key.publicKey },
+    { label: 'Credential', value: key.credentialId }
+  ] : [
     { label: 'Challenge', value: key.challenge },
     { label: 'Client data hash', value: key.clientDataHash },
     { label: 'Signed challenge', value: key.signatureHex },
     { label: 'Credential', value: key.credentialId }
-  ] : [], key ? [
-    key.purpose === 'associate' ? 'Replacement key' : 'Key verified',
+  ], key ? [
+    key.purpose === 'replace' ? 'Replacement key encoded' : key.purpose === 'encode' ? 'Key encoded' : 'Key verified',
     key.userVerified === true ? 'PIN verified' : key.userVerified === false ? 'PIN not verified' : null,
+    encoded && COSE_ALGORITHMS[key.alg] ? COSE_ALGORITHMS[key.alg] : null,
     Number.isFinite(key.signCount) ? `sign count ${key.signCount}` : null,
     formatWhen(key.at)
   ].filter(Boolean).join(' · ') : '');
@@ -680,7 +745,7 @@ async function updateUI() {
   }
 }
 
-/** Under Continue: whether this phone will ask for the key or just the passkey. */
+/** Under Continue: whether this phone will be set up or just ask for the passkey. */
 async function renderLoginHint(user) {
   const hint = document.getElementById('login-hint');
   if (!user) {
@@ -691,33 +756,13 @@ async function renderLoginHint(user) {
   if (getUsername() !== user) return;   // typed over meanwhile
   hint.textContent = device
     ? 'This phone is set up: Continue signs you in with your passkey.'
-    : 'First time on this phone: have your FIDO USB key and its PIN ready.';
+    : 'First time on this phone: we verify your number, create your passkey, then encode the blank FIDO USB key from your bank.';
   hint.hidden = false;
 }
 
 // ---------------------------------------------------------------------------
 // Ceremonies
 // ---------------------------------------------------------------------------
-
-/**
- * The key touch: the open get, then the User ID on screen has to be the
- * credential the key holds. Returns the confirmed User ID and the get's
- * result, or null after flashing why it stopped.
- */
-async function verifyKey(user, prompt) {
-  showFlash('flash-status', prompt, 'success', 60000);
-  const result = await webauthnAuthenticate(user);
-  if (!result.success) {
-    showFlash('flash-status', keyFailureMessage(result.error), 'failure', 8000);
-    return null;
-  }
-  const confirmed = reconcileUserId(user, result.authenticatedUser);
-  if (!confirmed) {
-    showFlash('flash-status', keyMismatchMessage(user, result.authenticatedUser), 'failure', 8000);
-    return null;
-  }
-  return { user: confirmed, result };
-}
 
 /** The passkey: a fresh ZSM + Passkeys+ authenticate in the SDK's required mode. */
 async function verifyPasskey(user, prompt) {
@@ -736,15 +781,16 @@ async function verifyPasskey(user, prompt) {
 /**
  * Continue. The device's own state picks the ceremony: a phone that holds a
  * ZSM share for the typed User ID signs in on the passkey alone; one that
- * holds none is set up: the guide, the key touch (whose User ID must match
- * the box), the number check, the handoff dialog, then the ZSM + Passkeys+
- * enroll in required mode, which creates a passkey or, where the server
- * already knows one for this number, authenticates it and rebuilds the share
- * here.
+ * holds none is set up: the guide, the number check, the handoff dialog, the
+ * ZSM + Passkeys+ enroll in required mode (which creates a passkey or, where
+ * the server already knows one for this number, authenticates it and
+ * rebuilds the share here), then, from HOME, the dialog in front of the
+ * create that encodes the blank key. A phone whose key step is skipped or
+ * fails is still bound: HOME offers Encode new FIDO key.
  */
 async function login() {
   const btn = document.getElementById('login-btn');
-  let user = getUsername();
+  const user = getUsername();
   if (!user) return;
 
   btn.classList.add('loading');
@@ -776,34 +822,17 @@ async function login() {
       return;
     }
 
-    // Step 1: the guide names the three steps; Start's tap is the gesture
-    // the key prompt needs
+    // Step 1: the guide names the three steps
     if (await showGuide(ONBOARDING_GUIDE) !== 'ok') return;
 
-    // Step 2: the key, with its PIN
-    const key = await verifyKey(user, 'Enter the PIN and touch your USB key...');
-    if (!key) return;
-    user = key.user;
-    const { outcome, record } = recordVerification(user, key.result);
-    if (outcome === 'refused') {
-      showFlash('flash-status', `This key was reported lost ${formatWhen(record.lostAt || record.replacedAt)} and is no longer accepted. Use the replacement key.`, 'failure', 8000);
-      return;
-    }
-    if (outcome === 'unknown') {
-      showFlash('flash-status', 'A different key is associated on this phone. Sign in and use Associate new FIDO key to switch to this one.', 'failure', 8000);
-      return;
-    }
-    setResult(user, 'key', keyResultFrom(key.result, 'setup'));
-    showFlash('flash-status', 'USB key verified', 'success');
-
-    // Step 3: the number check, always at setup
+    // Step 2: the number check, always at setup
     if (!(await ensureNumberVerified(user, { force: true }))) {
       showFlash('flash-status', 'Number not verified. Tap Continue to try again.', 'failure', 4000);
       await updateUI();
       return;
     }
 
-    // Step 4: the passkey, behind the handoff dialog (its tap is the gesture)
+    // Step 3: the passkey, behind the handoff dialog (its tap is the gesture)
     if (await showGuide(PASSKEY_GUIDE) !== 'ok') {
       await updateUI();
       return;
@@ -818,8 +847,17 @@ async function login() {
     }
     setResult(user, 'passkey', await passkeyResultFrom(enrollResult, 'enrollment'));
 
+    // The phone is bound: HOME from here, with the key step on top of it
     STATE.loginID = user;
-    showFlash('flash-status', 'Phone set up: key, number and passkey', 'success');
+    await updateUI();
+
+    // Step 4: the blank key, behind its dialog (its tap is the gesture the
+    // create needs; the browser's "create a PIN" step follows)
+    if (await showGuide(ENCODE_KEY_GUIDE) !== 'ok') {
+      showFlash('flash-status', 'Phone bound: number and passkey. Encode your FIDO key from HOME when you are ready.', 'success', 6000);
+      return;
+    }
+    await encodeKey(user, 'encode');
     await updateUI();
   } catch (err) {
     console.error('[login] Error:', err);
@@ -854,59 +892,110 @@ async function reportLost() {
   }
   if (await showGuide(LOST_KEY_GUIDE) !== 'ok') return;
   const lost = markLost(user);
-  showFlash('action-status', lost ? `Key reported lost ${formatWhen(lost.lostAt)}. A replacement would be on its way.` : 'No key to report', lost ? 'success' : 'failure', 5000);
+  showFlash('action-status', lost ? `Key reported lost ${formatWhen(lost.lostAt)}. The bank would ship a blank replacement key.` : 'No key to report', lost ? 'success' : 'failure', 5000);
   await renderHome(user);
 }
 
 /**
- * Associate new FIDO key: the passkey, the number check again, then the
- * replacement key. Its user handle must be this User ID; a key reported
- * lost or replaced is refused; the key already associated is left as it
- * is; any other key becomes the associated one and the previous is marked
- * replaced.
+ * The create that encodes the inserted blank key with this User ID. The
+ * create requires user verification, so the browser has the user create the
+ * key's PIN when the key has none, then touch it; the key decides what a PIN
+ * may be. Every key this phone already knows (active, lost or replaced) is
+ * excluded, so a lost key that turns up is refused by the key itself. The
+ * new credential becomes the associated key and the one before is marked
+ * replaced. Must run straight from a tap. Returns the record, or null after
+ * flashing why it stopped.
  */
-async function associateNewKey() {
+async function encodeKey(user, purpose) {
+  showFlash('flash-status', 'Create a PIN for the key when your phone asks, then touch the key...', 'success', 120000);
+  let enrollment;
+  try {
+    enrollment = await enrollKey({
+      phone: user,
+      displayName: formatPhone(user),
+      excludeIds: loadKeys(user).map(k => k.id)
+    });
+  } catch (err) {
+    console.error('[encode] create failed:', err);
+    showFlash('flash-status', encodeFailureMessage(err), 'failure', 8000);
+    return null;
+  }
+
+  const { outcome, record, previous } = associateKey(user, keyFromEnrollment(enrollment));
+  if (outcome === 'refused') {
+    showFlash('flash-status', `That key was ${record.status === KEY_STATUS.LOST ? 'reported lost' : 'replaced'} ${formatWhen(record.lostAt || record.replacedAt)} and is no longer accepted.`, 'failure', 8000);
+    return null;
+  }
+  setResult(user, 'key', encodeResultFrom(enrollment, purpose));
+  if (outcome === 'same') {
+    showFlash('flash-status', 'That is the key already associated with this phone.', 'success', 5000);
+    return record;
+  }
+  const when = formatWhen(record.associatedAt);
+  if (enrollment.warnings.length) {
+    showFlash('flash-status', `Key encoded ${when}, with a warning: ${enrollment.warnings[0]}`, 'failure', 10000);
+  } else if (previous) {
+    showFlash('flash-status', `New key encoded ${when}. The previous key is no longer accepted.`, 'success', 6000);
+  } else if (purpose === 'replace') {
+    showFlash('flash-status', `New key encoded ${when}. The key you reported lost stays refused.`, 'success', 6000);
+  } else {
+    showFlash('flash-status', `Key encoded ${when}. Keep it safe.`, 'success', 6000);
+  }
+  return record;
+}
+
+/**
+ * Verify USB key on HOME: the open get, drawn into the USB Key block. The
+ * handle must name this User ID. The associated key moves its last-verified
+ * time; a key reported lost or replaced is refused and the flash says when,
+ * which is how the demo shows the old key disabled; a different key while
+ * one is active is not swapped (Encode new FIDO key changes keys). With no
+ * active key, the key read becomes the associated one, which is how a second
+ * phone adopts a key it did not encode.
+ */
+async function verifyUsbKey() {
   const user = STATE.loginID;
   if (!user) return;
-  if (await showGuide(ASSOCIATE_GUIDE) !== 'ok') return;
-
-  if (!(await verifyPasskey(user, 'Confirm with your passkey...'))) {
-    showFlash('action-status', 'Association stopped: passkey not verified', 'failure', 4000);
+  showFlash('flash-status', 'Enter the PIN and touch your USB key...', 'success', 60000);
+  const result = await webauthnAuthenticate(user);
+  if (!result.success) {
+    showFlash('flash-status', keyFailureMessage(result.error), 'failure', 8000);
     return;
   }
-  if (!(await ensureNumberVerified(user, { force: true }))) {
-    await updateUI();
+  if (!sameUser(user, result.authenticatedUser)) {
+    showFlash('flash-status', keyMismatchMessage(user, result.authenticatedUser), 'failure', 8000);
+    return;
+  }
+  const { outcome, record } = recordVerification(user, result);
+  if (outcome === 'refused') {
+    showFlash('flash-status', `This key was ${record.status === KEY_STATUS.LOST ? 'reported lost' : 'replaced'} ${formatWhen(record.lostAt || record.replacedAt)} and is no longer accepted.`, 'failure', 8000);
+  } else if (outcome === 'unknown') {
+    showFlash('flash-status', 'This is not the key associated on this phone. Use Encode new FIDO key to change keys.', 'failure', 8000);
+  } else {
+    setResult(user, 'key', keyResultFrom(result, 'verify'));
+    showFlash('flash-status', outcome === 'associated' ? `Key associated ${formatWhen(record.associatedAt)}.` : 'USB key verified', 'success', 4000);
+  }
+  await renderHome(user);
+}
+
+/**
+ * Encode new FIDO key: the recovery. The passkey, then the create on the
+ * blank replacement; the key reported lost stays refused.
+ */
+async function encodeNewKey() {
+  const user = STATE.loginID;
+  if (!user) return;
+  if (await showGuide(ENCODE_NEW_GUIDE) !== 'ok') return;
+
+  if (!(await verifyPasskey(user, 'Confirm with your passkey...'))) {
+    showFlash('action-status', 'Stopped: passkey not verified', 'failure', 4000);
     return;
   }
   if (await showGuide(NEW_KEY_GUIDE) !== 'ok') {
     await updateUI();
     return;
   }
-
-  showFlash('flash-status', 'Enter the PIN and touch the new USB key...', 'success', 60000);
-  const result = await webauthnAuthenticate(user);
-  if (!result.success) {
-    showFlash('flash-status', keyFailureMessage(result.error), 'failure', 8000);
-    await updateUI();
-    return;
-  }
-  if (!sameUser(user, result.authenticatedUser)) {
-    showFlash('flash-status', keyMismatchMessage(user, result.authenticatedUser), 'failure', 8000);
-    await updateUI();
-    return;
-  }
-
-  const { outcome, record, previous } = associateKey(user, result);
-  if (outcome === 'refused') {
-    showFlash('flash-status', `That key was ${record.status === KEY_STATUS.LOST ? 'reported lost' : 'replaced'} ${formatWhen(record.lostAt || record.replacedAt)} and is no longer accepted.`, 'failure', 8000);
-  } else if (outcome === 'same') {
-    showFlash('flash-status', 'That is the key already associated with this phone.', 'success', 5000);
-  } else {
-    setResult(user, 'key', keyResultFrom(result, 'associate'));
-    showFlash('flash-status', previous
-      ? `New key associated ${formatWhen(record.associatedAt)}. The previous key is no longer accepted.`
-      : `Key associated ${formatWhen(record.associatedAt)}.`, 'success', 6000);
-  }
+  await encodeKey(user, 'replace');
   await updateUI();
 }
 
@@ -924,8 +1013,10 @@ async function logOut() {
 // purgeStorage — Reset Device: everything this phone holds goes, except the
 // User ID, and the page reloads on its bare path so a ?userid= from the
 // registration QR is not read again. The next Continue sets the phone up
-// again: the key, the number, and the passkey, which the server still knows
-// and the SDK authenticates rather than creating a second one.
+// again: the number, the passkey, which the server still knows and the SDK
+// authenticates rather than creating a second one, and the key, which is
+// encoded again (a key already holding a credential for this number gets a
+// fresh one; nothing on this phone excludes it any more).
 // ---------------------------------------------------------------------------
 function purgeStorage() {
   const username = getUsername();
@@ -958,10 +1049,12 @@ document.addEventListener('DOMContentLoaded', () => {
   };
   const authenticateBtn = document.getElementById('authenticate-btn');
   authenticateBtn.addEventListener('click', () => busy(authenticateBtn, authenticateStepUp));
+  const verifyKeyBtn = document.getElementById('verify-key-btn');
+  verifyKeyBtn.addEventListener('click', () => busy(verifyKeyBtn, verifyUsbKey));
   const lostBtn = document.getElementById('lost-key-btn');
   lostBtn.addEventListener('click', () => busy(lostBtn, reportLost));
-  const associateBtn = document.getElementById('associate-key-btn');
-  associateBtn.addEventListener('click', () => busy(associateBtn, associateNewKey));
+  const encodeBtn = document.getElementById('encode-key-btn');
+  encodeBtn.addEventListener('click', () => busy(encodeBtn, encodeNewKey));
 
   // Log Out
   document.getElementById('logout-btn').addEventListener('click', () => logOut());

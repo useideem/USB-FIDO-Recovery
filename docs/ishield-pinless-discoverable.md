@@ -440,3 +440,38 @@ What has not been measured:
 Run these on the deployed origin with `fido-test.html` (set its Create
 controls to Discoverable and User verification Required) before the first
 real walkthrough.
+
+## 8. The phone writes the key (2026-10-31)
+
+The customer's flow moved the create onto the phone. The bank ships a
+*blank* key; the user's phone verifies the number, enrolls the passkey, then
+runs the discoverable create itself (`enrollKey` in `key-enroll.js`, now
+called from `app.js`), and runs it again on a blank replacement after a
+loss. The registration page is a bench tool from here on.
+
+Two consequences for the measurements:
+
+- **The PIN is created during the create, on the phone.** A blank key has
+  no PIN and the create requires user verification, so the browser's own
+  "create a PIN" step is where the user sets it, and the key enforces the
+  PIN rules (the iShield's `minPINLength` is 4, section 3). The unmeasured
+  item from section 7, PIN setup through a browser, is therefore the first
+  thing the user sees rather than a convenience. Pre-setting the PIN with
+  `fido2-token -S` would skip the step the customer asked for, so it is the
+  fallback only if a phone browser cannot set one. Measure the create on a
+  blank key from Safari on an iPhone and Chrome on Android with
+  `fido-test.html` (Discoverable, User verification Required) on the Vercel
+  origin before the walkthrough. Desktop Chrome's `0x37` in section 3 is the
+  known failure of this exact step on this key.
+- **The phone now holds the public key.** The create's `getPublicKey()`
+  result goes into the key record (`publicKey` and `alg` in
+  `key-records.js`), so a later get's signature could be verified on the
+  phone. HOME does not do that yet; for the create it shows the public key
+  in the USB Key block, since a create with `attestation: 'none'` signs
+  nothing.
+
+Every key this phone has recorded (active, lost or replaced) is passed as
+`excludeCredentials`, so a lost key inserted at the replacement step is
+refused by the key itself (`InvalidStateError`), not only by the app. For
+demo resets, `fido2-token -R <device>` returns a key to blank, no
+credentials and no PIN, so the next run goes through PIN creation again.

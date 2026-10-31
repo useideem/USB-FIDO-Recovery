@@ -4,13 +4,15 @@
  * One box and one button. The phone number, as bare digits, goes onto the
  * inserted key as a discoverable, PIN-protected credential (key-enroll.js),
  * and the page then shows a QR code and a link that open the main page with
- * that number already in the User ID box. The user's phone takes it from
- * there: the key touch, the number check, the passkey.
+ * that number already in the User ID box.
  *
- * This is also how a replacement key is made when one is lost: enroll the
- * new key with the same number here, and the main page's "Associate new
- * FIDO key" reads it. The new credential has its own key pair; only the
- * number is the same.
+ * Since 2026-10-31 this page is a bench tool, outside the user's flow: the
+ * bank ships a blank key and the main page encodes it on the phone itself,
+ * at setup and again for a replacement. A key written here is read on the
+ * main page with "Verify USB key" on HOME; a phone with no key associated
+ * adopts it. The main page's setup, though, encodes whatever key is inserted,
+ * so a key written here and then inserted at setup is encoded afresh (the key
+ * replaces its credential for the same number).
  *
  * There is no database and no SDK here. Nothing leaves the page except the
  * credential record the dev server keeps for the key tester (absent in

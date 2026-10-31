@@ -47,23 +47,26 @@
 
     <!-- LOGIN screen — logged out. Continue reads the device: a phone that
          holds a ZSM share for the number signs in on the passkey alone; one
-         that holds none is walked through the key touch, the number check
-         and the passkey enrollment (the guide dialog below names them). -->
+         that holds none is walked through the number check, the passkey
+         enrollment and the encoding of the blank key (the guide dialog below
+         names them). -->
     <div class="screen active" id="LOGIN">
       <button id="login-btn" class="btn btn-primary" disabled>Continue</button>
       <p class="login-hint" id="login-hint" hidden></p>
     </div>
 
-    <!-- HOME screen — logged in. The key this phone has associated and when,
+    <!-- HOME screen — logged in. The key this phone has encoded and when,
          the four factors, the actions, and the challenge blocks. -->
     <div class="screen" id="HOME">
 
-      <!-- The key: the newest record, then the ones before it -->
+      <!-- The key: the newest record, then the ones before it. The second
+           row reads Encoded for a key this phone wrote, Associated for one it
+           only read. -->
       <section class="key-card" aria-labelledby="key-card-title">
         <p class="key-card-title" id="key-card-title">USB FIDO Key</p>
         <dl class="key-rows" id="key-current" hidden>
           <div class="key-row"><dt>Credential</dt><dd id="key-id" class="key-mono">--</dd></div>
-          <div class="key-row"><dt>Associated</dt><dd id="key-associated">--</dd></div>
+          <div class="key-row"><dt id="key-associated-label">Associated</dt><dd id="key-associated">--</dd></div>
           <div class="key-row"><dt>Last verified</dt><dd id="key-verified">--</dd></div>
           <div class="key-row"><dt>Status</dt><dd id="key-status">--</dd></div>
         </dl>
@@ -79,13 +82,15 @@
         <li class="sna-indicator" id="factor-passkey"><span class="sna-indicator-mark"></span><span class="sna-indicator-label">Passkey Enrolled</span><span class="sna-indicator-state" id="factor-passkey-state"></span></li>
       </ul>
 
-      <!-- Actions. Authenticate is a fresh passkey step-up. I lost this key
-           reports the key lost. Associate new FIDO key is the recovery:
-           passkey, the number check again, then the replacement key. -->
+      <!-- Actions. Authenticate is a fresh passkey step-up. Verify USB key
+           is a get on the key, which shows a lost key refused. I lost this
+           key reports the key lost. Encode new FIDO key is the recovery:
+           the passkey, then the create on the blank replacement. -->
       <div class="action-grid">
         <button class="btn btn-action" id="authenticate-btn" type="button">Authenticate</button>
+        <button class="btn btn-action" id="verify-key-btn" type="button">Verify USB key</button>
         <button class="btn btn-action" id="lost-key-btn" type="button">I lost this key</button>
-        <button class="btn btn-action btn-action-wide" id="associate-key-btn" type="button">Associate new FIDO key</button>
+        <button class="btn btn-action" id="encode-key-btn" type="button">Encode new FIDO key</button>
       </div>
       <div id="action-status" class="flash" role="status" aria-live="polite"></div>
 
@@ -110,10 +115,9 @@
       <button id="logout-btn" class="btn btn-secondary">Log Out</button>
     </div>
 
-    <!-- SNA screen — simulated Silent Network Authentication: at setup, and
-         again before a replacement key is associated. app.js draws the step
-         list from SNA_STEPS in sna.js, and the indicator list is what the
-         check ends on. -->
+    <!-- SNA screen — simulated Silent Network Authentication, the first step
+         of setup. app.js draws the step list from SNA_STEPS in sna.js, and
+         the indicator list is what the check ends on. -->
     <div class="screen" id="SNA">
       <p class="sna-title" id="sna-title">Verify phone number with telco carrier</p>
       <p class="sna-subtitle" id="sna-subtitle" hidden></p>
@@ -154,10 +158,10 @@
   </template>
 
   <!-- Guide dialog: what Continue is about to do on a phone that is not set
-       up yet, the handoff to the passkey, the lost-key report, and the
-       steps of associating a replacement key. The tap on its button is also
-       the user gesture the WebAuthn prompt that follows needs. app.js fills
-       it from the guide constants. -->
+       up yet, the handoff to the passkey, the handoff to the blank key, the
+       lost-key report, and the steps of encoding a replacement. The tap on
+       its button is also the user gesture the WebAuthn prompt that follows
+       needs. app.js fills it from the guide constants. -->
   <div id="guide-popup" class="popup-overlay" role="dialog" aria-modal="true" aria-labelledby="guide-title">
     <div class="popup-card">
       <p id="guide-title" class="popup-title"></p>

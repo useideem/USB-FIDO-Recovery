@@ -1,11 +1,19 @@
 /**
  * key-enroll.js -- The discoverable create that puts a phone number on a
- * FIDO USB key, for register.html
+ * FIDO USB key
  *
  * One ceremony: a WebAuthn create with the phone number as user.id, stored
- * on the key as a DISCOVERABLE credential, so that later, on the user's own
- * phone, a get with an empty allowCredentials list hands the number back
- * after the key's PIN and a touch -- no account picker, nothing typed.
+ * on the key as a DISCOVERABLE credential, so that a later get with an empty
+ * allowCredentials list hands the number back after the key's PIN and a
+ * touch -- no account picker, nothing typed.
+ *
+ * Since 2026-10-31 the main page runs it on the user's own phone: the bank
+ * ships a blank key, the phone is bound first (number check, passkey), then
+ * the create encodes the key with the verified number, and the same create
+ * encodes the blank replacement after a loss. Because the create requires
+ * user verification and a blank key has no PIN, the browser's "create a PIN"
+ * step is where the user sets the key's PIN. register.html runs the same
+ * function from a desktop browser as a bench tool.
  *
  * THE OPTIONS:
  *   - residentKey: 'required'            the key must store the credential and
@@ -37,7 +45,10 @@
  *
  * STORAGE: localStorage 'ishield_enrollments', one record per credential
  * written from this browser, so a second create for the same number on the
- * same key is excluded. Clearing it removes nothing from any key.
+ * same key is excluded. The main page adds the ids it knows from
+ * key-records.js (active, lost and replaced) through `excludeIds`, so a lost
+ * key that turns up is refused by the key itself (InvalidStateError).
+ * Clearing the list removes nothing from any key.
  */
 
 import { base64urlToBuffer, bufferToBase64url } from './ishield.js';
@@ -62,7 +73,7 @@ export const PUB_KEY_CRED_PARAMS = [-7, -8, -257].map(alg => ({ type: 'public-ke
 /** Friendlier explanations for the DOMException names WebAuthn throws. */
 export const ERROR_HINTS = {
   NotAllowedError: 'Cancelled, timed out, the PIN was wrong or not entered, or the key refused.',
-  InvalidStateError: 'This key already holds a credential for that phone number. It is already enrolled.',
+  InvalidStateError: 'This key already holds a credential for that phone number, or it is a key this browser has excluded.',
   SecurityError: 'The RP ID is not valid for this origin. Open the page over HTTPS or http://localhost, not an IP address.',
   NotSupportedError: 'The key supports none of the requested algorithms or options.',
   ConstraintError: 'The key cannot store a discoverable credential under these settings, or could not verify the user.',
@@ -138,26 +149,36 @@ export function enrollmentWarnings(entry, ceremonyOk = true) {
 }
 
 /**
+ * The credential ids a create for `phone` must refuse: every one this browser
+ * wrote for the number, plus the ids the caller knows from elsewhere (the
+ * main page passes its key records). Pure, deduplicated, base64url.
+ */
+export function excludeIdsFor(phone, excludeIds = []) {
+  const written = loadEnrollments().filter(c => c.phone === phone).map(c => c.id);
+  return [...new Set([...written, ...excludeIds.filter(Boolean)])];
+}
+
+/**
  * Writes a discoverable, PIN-protected credential holding the phone number
  * to the inserted key, records it in the shared enrollment list, and reports
  * what the key actually did: whether the credential is really discoverable
- * and whether the user was verified (the PIN was entered).
+ * and whether the user was verified (the PIN was created or entered).
  *
  * A second credential for the same number on the same key is refused through
- * excludeCredentials, built from the list. Transports are left off so the
- * browser tries every way it can reach the key.
+ * excludeCredentials, built from the list and from `excludeIds`. Transports
+ * are left off so the browser tries every way it can reach the key.
  *
  * Throws what navigator.credentials.create throws; ERROR_HINTS explains the
- * names.
+ * names. InvalidStateError is the key saying it already holds one of the
+ * excluded credentials: on the main page, a lost or replaced key.
  *
  * @returns {Promise<{ entry: object, rpId: string, checks: object, ceremonyOk: boolean, warnings: string[], ok: boolean }>}
  */
-export async function enrollKey({ phone, displayName = phone }) {
+export async function enrollKey({ phone, displayName = phone, excludeIds = [] }) {
   const rpId = location.hostname;
   const challenge = crypto.getRandomValues(new Uint8Array(32));
-  const excludeCredentials = loadEnrollments()
-    .filter(c => c.phone === phone)
-    .map(c => ({ type: 'public-key', id: base64urlToBuffer(c.id) }));
+  const excludeCredentials = excludeIdsFor(phone, excludeIds)
+    .map(id => ({ type: 'public-key', id: base64urlToBuffer(id) }));
   const publicKey = createOptions({ phone, displayName, challenge, rpId, excludeCredentials });
 
   const cred = await navigator.credentials.create({ publicKey });

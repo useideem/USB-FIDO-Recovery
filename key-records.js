@@ -1,23 +1,30 @@
 /**
- * key-records.js -- The FIDO USB keys this browser has seen for a User ID
+ * key-records.js -- The FIDO USB keys this browser has encoded or seen for a
+ * User ID
  *
  * The app has no backend, so what it knows about a user's keys lives in the
  * browser: one list per User ID in localStorage, newest first, one record
- * per credential id the key handed back on a get. The key itself holds the
- * credential; these records only say what THIS browser has associated,
- * reported lost or replaced, and when.
+ * per credential id, from the create that encoded the key on this phone or
+ * from a get that read it. The key itself holds the credential; these
+ * records only say what THIS browser has associated, reported lost or
+ * replaced, and when.
  *
  * A record:
  *   {
  *     id:             the credential id (base64url), the key's own identity
  *     userHandle:     the User ID the key carries, as the key spells it
  *     status:         'active' | 'lost' | 'replaced'
- *     associatedAt:   when this browser first verified the key (ISO date)
- *     lastVerifiedAt: the last successful get with it
+ *     associatedAt:   when this browser encoded or first verified the key (ISO date)
+ *     encodedAt:      when this browser wrote the credential onto the key (the
+ *                     create), or null for a key it only read
+ *     lastVerifiedAt: the last ceremony with it: the create, or the last get
  *     lostAt:         set by markLost
  *     replacedAt:     set when a later key took over
- *     userVerified:   whether the key verified the user (its PIN) on the last get
- *     signCount:      the key's counter on the last get
+ *     userVerified:   whether the key verified the user (its PIN) on the last ceremony
+ *     signCount:      the key's counter on the last ceremony
+ *     publicKey:      the credential's public key (SPKI, base64url) when the
+ *                     create ran here and the browser exposed it, else null
+ *     alg:            its COSE algorithm, likewise
  *   }
  *
  * At most one record is active. A key reported lost, or replaced by a newer
@@ -85,11 +92,14 @@ function newRecord(assertion, now) {
     userHandle: assertion.authenticatedUser ?? null,
     status: KEY_STATUS.ACTIVE,
     associatedAt: now,
+    encodedAt: assertion.encoded === true ? now : null,
     lastVerifiedAt: now,
     lostAt: null,
     replacedAt: null,
     userVerified: assertion.userVerified ?? null,
-    signCount: assertion.signCount ?? null
+    signCount: assertion.signCount ?? null,
+    publicKey: assertion.publicKey ?? null,
+    alg: assertion.alg ?? null
   };
 }
 
@@ -131,12 +141,17 @@ export function recordVerification(user, assertion, now = new Date().toISOString
 }
 
 /**
- * Associate a replacement key: the id becomes the active key, and whatever
+ * Associate a key: the create that just encoded one on this phone (pass the
+ * entry with `encoded: true`, and its publicKey and alg when known), or a
+ * replacement read with a get. The id becomes the active key, and whatever
  * was active before is marked replaced. The outcome says what happened:
  *   'refused'     the id belongs to a key reported lost or replaced
  *   'same'        the id is already the active key; nothing changes
  *   'associated'  the swap was made; `previous` is the key it replaced, if any
  *
+ * @param {string} user
+ * @param {{credentialId: string, authenticatedUser?: string|null, userVerified?: boolean, signCount?: number, encoded?: boolean, publicKey?: string|null, alg?: number|null}} assertion
+ * @param {string} [now]
  * @returns {{outcome: string, record: object|null, previous: object|null}}
  */
 export function associateKey(user, assertion, now = new Date().toISOString()) {

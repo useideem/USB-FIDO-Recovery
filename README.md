@@ -1,6 +1,6 @@
 # USB FIDO Key Recovery: Ideem ZSM + Passkeys+ Integration Guide
 
-A partner-facing implementation guide for a web app that binds three factors to a phone, a Swissbit iShield USB FIDO key, the phone number, and an Ideem Passkeys+ passkey, and recovers from a lost key by associating a replacement.
+A partner-facing implementation guide for a web app that binds three factors to a phone, the phone number, an Ideem Passkeys+ passkey, and a Swissbit iShield USB FIDO key that the phone itself encodes, the user creating the key's PIN as it is written, and that recovers from a lost key by encoding a blank replacement.
 
 ---
 
@@ -35,36 +35,41 @@ The client-side share is stored in the browser's **IndexedDB** and bound with **
 
 ### What is the FIDO key for?
 
-The USB key is a possession factor the user carries. It is written once, on the registration page, with the user's phone number stored on it as a discoverable credential protected by the key's PIN. The phone then reads it with a raw WebAuthn get: the key answers with the number, after the PIN and a touch, and the app associates that credential with the phone. When the key is lost, the user says so in the app, a replacement is written with the same number, and the app associates the replacement: a different credential, the same User ID. The lost one is refused from then on.
+The USB key is a possession factor the user carries. In the story the demo plays, a bank ships it blank. Once the phone has verified the number and enrolled the passkey, the phone writes the key with a raw WebAuthn create: the user's phone number goes onto it as a discoverable credential, and because the create requires user verification, the browser has the user create the key's PIN before the touch. The app records that credential as the key associated with the phone. When the key is lost, the user says so in the app, the bank ships another blank key, and after the passkey the phone encodes the replacement: a different credential, the same User ID. The lost one is refused from then on, by the app and by the key itself (its id is excluded from the create).
 
 ### The flows
 
 ```
-REGISTRATION (register.html, on a Mac in Safari)
-  Phone number -> Enroll Key: navigator.credentials.create() with the number
-  as user.id, residentKey required, userVerification required (the key's PIN)
-  -> QR code and link that open the main page with ?userid=<number>
-
 SETUP (index.html, first Continue on a phone)
-  1. webauthnAuthenticate(user)  -- PIN and touch; the key's user handle must
-                                    match the User ID; the credential id and
-                                    the time are recorded on the phone
-  2. verifyNumber(user)          -- the simulated carrier check (sna.js)
-  3. enroll(user, 'required')    -- ZSM share + Passkeys+ passkey, one call
+  1. verifyNumber(user)          -- the simulated carrier check (sna.js)
+  2. enroll(user, 'required')    -- ZSM share + Passkeys+ passkey, one call
+  3. enrollKey({ phone: user })  -- navigator.credentials.create() on the blank
+                                    key: the number as user.id, residentKey
+                                    required, userVerification required, so
+                                    the browser has the user create the key's
+                                    PIN, then touch it; the credential id, the
+                                    public key and the time are recorded
 
 SIGN-IN (a phone that holds the ZSM share)
   1. authenticate(user, 'required')  -- the passkey alone
 
 HOME
-  The key: credential, associated date and time, last verified, status.
+  The key: credential, encoded date and time, last verified, status.
   The factors: USB Key, Phone# Verified, Device Bound, Passkey.
-  The challenge and signed challenge each factor's last ceremony produced.
+  The challenge each factor's last ceremony produced, with the signed
+    challenge where there is one and the public key for the create.
   Authenticate -- a fresh passkey step-up.
+  Verify USB key -- webauthnAuthenticate(user): PIN and touch; the key's user
+    handle must match the User ID; a lost or replaced key is refused.
   I lost this key -- a dialog; the key is marked lost and refused.
-  Associate new FIDO key -- authenticate(user, 'required'), verifyNumber(user)
-    again, then webauthnAuthenticate(user) on the replacement: the same number
-    under a new credential id becomes the associated key; the previous one is
-    marked replaced and refused.
+  Encode new FIDO key -- authenticate(user, 'required'), then enrollKey on the
+    blank replacement with every known id excluded: the same number under a
+    new credential id becomes the associated key; the previous one is marked
+    replaced and refused.
+
+BENCH (register.html, from a desktop browser; not part of the user's flow)
+  Phone number -> Enroll Key: the same create -> QR code and link that open
+  the main page with ?userid=<number>; Verify USB key on HOME reads the key
 ```
 
 There is no backend of the app's own. What the app knows about a user's keys lives in the phone's browser (`key-records.js`); the passkey and the ZSM share live with Ideem and in the browser's IndexedDB; the number check leaves a marker on the phone.
@@ -339,19 +344,26 @@ The USB key is handled with the browser's `navigator.credentials` API directly, 
 
 | Module | Role |
 |--------|------|
-| [`key-enroll.js`](./key-enroll.js) | The create that writes the phone number onto a key (the registration page) |
-| [`ishield.js`](./ishield.js) | The get that reads whichever key is present (the main page), plus base64url and SHA-256 helpers |
-| [`key-records.js`](./key-records.js) | What a browser knows about a user's keys: associated, lost, replaced, and when |
+| [`key-enroll.js`](./key-enroll.js) | The create that writes the phone number onto a key: the main page at setup and in recovery, the registration page as a bench tool |
+| [`ishield.js`](./ishield.js) | The get that reads whichever key is present (Verify USB key on HOME), plus base64url and SHA-256 helpers |
+| [`key-records.js`](./key-records.js) | What a browser knows about a user's keys: encoded or read, lost, replaced, and when |
 
 ### Writing a key
 
 ```javascript
 import { enrollKey } from './key-enroll.js';
+import { loadKeys } from './key-records.js';
 
-const result = await enrollKey({ phone: '9135551235', displayName: '(913) 555-1235' });
+const result = await enrollKey({
+  phone: '9135551235',
+  displayName: '(913) 555-1235',
+  excludeIds: loadKeys('9135551235').map(k => k.id)   // every key this phone knows, lost ones included
+});
 // result.entry.id          -- the credential id
-// result.entry.uvAtCreate  -- true when the key verified the user (its PIN)
+// result.entry.publicKey   -- SPKI, base64url, when the browser exposes it
+// result.entry.uvAtCreate  -- true when the key verified the user (the PIN it just created, or entered)
 // result.warnings          -- anything that would break retrieval
+// throws InvalidStateError -- the key already holds an excluded credential: a lost key turned up
 ```
 
 The create options are the measured ones, with one change made on 2026-10-21:
@@ -369,7 +381,7 @@ extensions: { credProps: true }
 
 `user.id` is the phone number as UTF-8, so a get on any phone reads it straight back out of the user handle. A production RP would use random opaque bytes mapped to the number on the server.
 
-Because verification is required, the browser makes the user set a PIN on a key that has none and asks for it on every touch after that, on every device. A page can require verification; it cannot set, read or size the PIN. The iShield's minimum is four digits.
+Because verification is required, the browser makes the user create a PIN on a key that has none, which is the step the demo's story wants on the phone with the blank key from the bank, and asks for it on every touch after that, on every device. A page can require verification; it cannot set, read or size the PIN. The key enforces the PIN rules; the iShield's minimum is four digits.
 
 ### Reading a key
 
@@ -390,25 +402,32 @@ if (result.success) {
 }
 ```
 
-The get sends an **empty `allowCredentials` list**, so the key answers with whatever discoverable credential it holds for this site and the app learns who it is from the user handle. That is what lets a phone that has never seen the key read it. The app then checks that the handle names the User ID on screen, adopting the key's spelling of the number.
+The get sends an **empty `allowCredentials` list**, so the key answers with whatever discoverable credential it holds for this site and the app learns who it is from the user handle. That is what lets a phone that has never seen the key read it. The app then checks that the handle names the signed-in User ID.
 
 ### Recording keys
 
 ```javascript
 import { recordVerification, associateKey, markLost, activeKey, refusedKey } from './key-records.js';
 
-// Setup: the first key this browser sees for the user becomes the associated key
-const { outcome, record } = recordVerification(user, result);   // 'associated' | 'verified' | 'refused' | 'unknown'
+// Setup: the create's entry becomes the associated key, marked as encoded here
+const { entry } = await enrollKey({ phone: user, excludeIds: loadKeys(user).map(k => k.id) });
+const made = associateKey(user, {
+  credentialId: entry.id, authenticatedUser: entry.phone, userVerified: entry.uvAtCreate,
+  signCount: entry.signCount, publicKey: entry.publicKey, alg: entry.alg, encoded: true
+});                                        // 'associated' | 'same' | 'refused'
+
+// Verify USB key: a get on whichever key is inserted
+const { outcome, record } = recordVerification(user, result);   // 'verified' | 'refused' | 'unknown' | 'associated'
 
 // The user reports the key lost: it is refused from now on
 markLost(user);
 
-// Recovery: a replacement with the same number, a different credential id
-const swap = associateKey(user, result);   // 'associated' | 'same' | 'refused'
-swap.previous;                             // the key it replaced, now marked 'replaced'
+// Recovery: the create on the blank replacement, the same call as at setup
+const swap = associateKey(user, { ...fromEntry, encoded: true });   // 'associated'
+swap.previous;                             // the key it replaced, if one was still active
 ```
 
-Records live in `localStorage` under `ishield_keys:<user>`, newest first, with `associatedAt`, `lastVerifiedAt`, `lostAt` and `replacedAt` as ISO dates. There is no backend, so a second phone has its own list.
+Records live in `localStorage` under `ishield_keys:<user>`, newest first, with `associatedAt`, `encodedAt`, `lastVerifiedAt`, `lostAt` and `replacedAt` as ISO dates and `publicKey` and `alg` from the create. There is no backend, so a second phone has its own list.
 
 ---
 
@@ -557,8 +576,8 @@ Encoding helpers used across the modules.
 | `loadKeys(user)` / `saveKeys(user, list)` / `clearKeys(user)` | The list, newest first |
 | `activeKey(user)` | The key this browser accepts, or `null` |
 | `findKey(user, id)` / `refusedKey(user, id)` | A record by credential id; `refusedKey` answers only for a lost or replaced one |
-| `recordVerification(user, assertion, now?)` | A get at setup or sign-in: `'associated'`, `'verified'`, `'refused'` or `'unknown'` |
-| `associateKey(user, assertion, now?)` | A replacement: `'associated'` (with `previous`), `'same'` or `'refused'` |
+| `recordVerification(user, assertion, now?)` | A get (Verify USB key): `'associated'`, `'verified'`, `'refused'` or `'unknown'` |
+| `associateKey(user, assertion, now?)` | The create at setup or in recovery (pass `encoded: true`, `publicKey`, `alg`): `'associated'` (with `previous`), `'same'` or `'refused'` |
 | `markLost(user, now?)` | The lost report; returns the record or `null` |
 
 ---
@@ -578,7 +597,8 @@ Encoding helpers used across the modules.
 
 | Function | Description |
 |----------|-------------|
-| `enrollKey({ phone, displayName })` | The create; returns `{ entry, rpId, checks, ceremonyOk, warnings, ok }` and throws what WebAuthn throws |
+| `enrollKey({ phone, displayName, excludeIds })` | The create; returns `{ entry, rpId, checks, ceremonyOk, warnings, ok }` and throws what WebAuthn throws (`InvalidStateError` for an excluded key) |
+| `excludeIdsFor(phone, excludeIds)` | The ids the create refuses: the enrollment list for the number plus the caller's, deduplicated |
 | `createOptions(...)` / `enrollmentWarnings(entry, ceremonyOk)` | The options and the checks, as pure functions |
 | `loadEnrollments()` / `saveEnrollments(list)` | The `ishield_enrollments` list the create excludes against |
 | `detectBrowser()` | `{ label, chromium, desktop }` from UA Client Hints or the user agent string |
@@ -591,7 +611,7 @@ Encoding helpers used across the modules.
 ```
 app.js / register.js / fido-test.js       page glue, DOM, screens, dialogs
    |         |              |
-   |         +---- key-enroll.js   the discoverable create that writes a key
+   +---------+---- key-enroll.js   the discoverable create that encodes a key (app.js at setup and recovery, register.js as a bench tool)
    |         |          |     |
    |         +---- webauthn-util.js <-+     CBOR decoder, authenticator-data parser, RP-side checks
    |                     |
@@ -599,7 +619,7 @@ app.js / register.js / fido-test.js       page glue, DOM, screens, dialogs
    |        |            |
    +---- ishield.js <----+                  the raw WebAuthn get; zero SDK deps; base64url + SHA-256 helpers
    |
-   +---- key-records.js                     the keys a browser has associated, lost, replaced; no DOM
+   +---- key-records.js                     the keys a browser has encoded or read, lost, replaced; no DOM
    |
    +---- sna.js                             simulated Silent Network Authentication; no DOM, no network
 ```
