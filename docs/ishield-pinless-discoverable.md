@@ -1,7 +1,7 @@
-# iShield PIN-less Discoverable Credentials: Test Findings
+# FIDO Key PIN-less Discoverable Credentials: Test Findings
 
-What we learned on 2026-09-15 and 2026-09-16 while testing whether a Swissbit
-iShield key can identify its owner on someone else's phone with a touch, no PIN
+What we learned on 2026-09-15 and 2026-09-16 while testing whether the demo's
+FIDO USB key can identify its owner on someone else's phone with a touch, no PIN
 and no typing. The measurements stand; what the app asks of the key has since
 changed.
 
@@ -58,7 +58,7 @@ handle came back as the phone number.
 
 ## 3. Why: what each layer allows
 
-### The key (Swissbit iShield Key 2 Pro MIFARE)
+### The key
 
 `fido2-token -I` (libfido2 1.17.0) reports:
 
@@ -140,7 +140,7 @@ changed in commit `6cb97600`, 2026-08-11):
 - **At most 64 IDs in `allowCredentials`.** Chrome throws
   `RangeError: The allowCredentials attribute exceeds the maximum allowed size (64).`
 
-- **Chrome probes the ID list silently.** Because the iShield doesn't report
+- **Chrome probes the ID list silently.** Because the key doesn't report
   `maxCredentialCountInList` / `maxCredentialIdLength`,
   `FilterAndBatchCredentialDescriptors` (`device/fido/make_credential_task.cc`)
   uses batches of one. Measured end to end with 64 IDs (63 random decoys, real
@@ -151,8 +151,8 @@ changed in commit `6cb97600`, 2026-08-11):
   (`kCtap2ErrPinPolicyViolation`) for the PINs we entered (including `1234`).
   The same key accepted a PIN via python-fido2
   (`ClientPin(..., PinProtocolV2()).set_pin(...)`). Read at the time as a
-  Chrome/iShield compatibility quirk; section 8 (2026-11-01) has the
-  explanation: `0x37` is the key enforcing Swissbit's PIN rules, which refuse
+  Chrome compatibility quirk; section 8 (2026-11-01) has the
+  explanation: `0x37` is the key enforcing its PIN rules, which refuse
   a run such as `1234`, while `minPINLength` 4 is all the browser checks.
   Chrome's PIN setup has not been retried with a PIN the key accepts. It
   didn't matter for the PIN-less plan.
@@ -258,7 +258,7 @@ requires verification (section 7). The rest still hold.
    successful Get, including touch-only ones. Names (`user.name`) aren't
    available without UV.
 7. **Verify on the server:** challenge, origin, `rpIdHash`, signature against
-   the stored public key, and that the sign count increased (the iShield keeps
+   the stored public key, and that the sign count increased (the key keeps
    a counter).
 8. **Consider an opaque `user.id`** (random bytes) mapped to the phone number on
    the server, rather than the raw number on the key. The tests used the phone
@@ -430,7 +430,7 @@ What the September measurements already say about a PIN'd key:
 - Desktop Chrome prompts for the PIN on the empty-list get instead of
   refusing it: the PIN was the capability it found missing. So desktop Chrome
   can now read a key, which it could not in the PIN-less world.
-- Desktop Chrome's own PIN setup on the iShield failed with CTAP `0x37`
+- Desktop Chrome's own PIN setup on the key failed with CTAP `0x37`
   (`PinPolicyViolation`) for every PIN tried, `1234` included, while
   python-fido2 set a PIN on the same key without trouble. Explained on
   2026-11-01: the key's PIN rules refuse a run such as `1234` (section 8).
@@ -469,7 +469,7 @@ Two consequences for the measurements:
 - **The PIN is created during the create, on the phone.** A blank key has
   no PIN and the create requires user verification, so the browser's own
   "create a PIN" step is where the user sets it, and the key enforces the
-  PIN rules (the iShield's `minPINLength` is 4, section 3). The unmeasured
+  PIN rules (the key's `minPINLength` is 4, section 3). The unmeasured
   item from section 7, PIN setup through a browser, is therefore the first
   thing the user sees rather than a convenience. Pre-setting the PIN with
   `fido2-token -S` would skip the step the customer asked for, so it is the
@@ -494,7 +494,7 @@ credentials and no PIN, so the next run goes through PIN creation again.
 ### 2026-11-01: the first run on hardware
 
 The owner ran the main page's setup in Safari on a Mac (macOS 26.5.2) with
-the iShield Key 2 Pro MIFARE inserted. Two findings.
+the demo key inserted. Two findings.
 
 **The key's PIN rules, not the browser, refuse a PIN.** Safari's "Set Up
 Security Key" sheet, the PIN-creation step, answered "Unrecognized PIN code.
@@ -512,7 +512,7 @@ remaining rk(s): 300
 
 `noclientPin` means no PIN was set, so the only PIN command Safari could
 have sent was setPIN, and the only refusal the key documents for that is its
-policy. Swissbit's iShield Key 2 FAQ (v1.0, 2025-01-17) gives it: section
+policy. The maker's FAQ for the key (v1.0, 2025-01-17) gives it: section
 3.2.1, FIDO2, "PIN length: min. 4 characters (min. 6 characters for FIPS
 model)"; section 3.2.5, PIN Rules, for every applet "unless otherwise
 specified": at least 6 characters, a new PIN different from the current one,

@@ -1,6 +1,6 @@
 # USB FIDO Key Recovery: Ideem ZSM + Passkeys+ Integration Guide
 
-A partner-facing implementation guide for a web app that binds three factors to a phone, the phone number, an Ideem Passkeys+ passkey, and a Swissbit iShield USB FIDO key that the phone itself encodes, the user creating the key's PIN as it is written, and that recovers from a lost key by encoding a blank replacement.
+A partner-facing implementation guide for a web app that binds three factors to a phone, the phone number, an Ideem Passkeys+ passkey, and a USB FIDO key that the phone itself encodes, the user creating the key's PIN as it is written, and that recovers from a lost key by encoding a blank replacement.
 
 ---
 
@@ -383,7 +383,7 @@ extensions: { credProps: true }
 
 `user.id` is the phone number as UTF-8, so a get on any phone reads it straight back out of the user handle. A production RP would use random opaque bytes mapped to the number on the server.
 
-Because verification is required, the browser makes the user create a PIN on a key that has none, which is the step the demo's story wants on the phone with the blank key from the bank, and asks for it on every touch after that, on every device. A page can require verification; it cannot set, read or size the PIN. The key enforces the PIN rules. The iShield advertises a four-character minimum and refuses a run such as 1234 and a character repeated four times, which Safari's sheet reports as "Unrecognized PIN code"; the guides say so before the sheet opens.
+Because verification is required, the browser makes the user create a PIN on a key that has none, which is the step the demo's story wants on the phone with the blank key from the bank, and asks for it on every touch after that, on every device. A page can require verification; it cannot set, read or size the PIN. The key enforces the PIN rules. The demo key advertises a four-character minimum and refuses a run such as 1234 and a character repeated four times, which Safari's sheet reports as "Unrecognized PIN code"; the guides say so before the sheet opens.
 
 ### Reading a key
 
@@ -648,7 +648,7 @@ app.js / register.js / fido-test.js       page glue, DOM, screens, dialogs
 | Symptom | Cause | Fix |
 |---------|-------|-----|
 | Every touch asks for a PIN | The key has a PIN, and the create requires verification | Expected since 2026-10-21. A key with any PIN is asked for it by every browser whatever the page says. |
-| Desktop Chrome: "Set up a new PIN" fails on the iShield | A Chrome/iShield quirk seen in the September tests (CTAP `0x37`) | Set the PIN once with the libfido2 CLI (`fido2-token -S`), or enroll in Safari. See `docs/ishield-pinless-discoverable.md`. |
+| Desktop Chrome: "Set up a new PIN" fails with CTAP `0x37` | The key refused the PIN: a run such as 1234, or a character repeated four times | Choose a PIN the key accepts. Seen in the September tests and explained on 2026-11-01; see `docs/ishield-pinless-discoverable.md`. |
 | A passkey answers instead of the key | A password manager stepped in front of the security-key prompt | The app refuses it and says so; pick the USB key in the prompt. The SDK reports `isUsingPasswordManager` when `navigator.credentials.get` has been replaced. |
 | The phone cannot find the credential | The key was written on another origin (localhost, a tunnel) | Credentials are bound to the RP ID (hostname). Enroll on the deployment the phone will open. |
 | `NotAllowedError` with no prompt at all | The page did not have focus, or the gesture was lost | Every ceremony sits directly behind a button tap; keep it that way. |

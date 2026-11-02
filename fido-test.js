@@ -50,7 +50,7 @@ const STORAGE_KEY = 'fido_test_credentials';
 /** How long the browser waits for a key touch / PIN before failing. */
 const TIMEOUT_MS = 120000;
 
-const RP_NAME = 'Swissbit FIDO Test';
+const RP_NAME = 'Ideem FIDO Test';
 
 /** COSE algorithm identifiers offered at create time, in preference order. */
 const COSE_ALGORITHMS = { [-7]: 'ES256', [-8]: 'EdDSA', [-257]: 'RS256' };

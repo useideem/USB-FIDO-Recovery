@@ -1,9 +1,9 @@
 /**
  * ishield.js -- FIDO USB Key (Raw WebAuthn get)
  *
- * This module reads a FIDO USB security key (the demo's are Swissbit iShield
- * keys) with the Web Authentication API (navigator.credentials.get). It has
- * ZERO SDK dependencies and never touches the DOM.
+ * This module reads a FIDO USB security key with the Web Authentication API
+ * (navigator.credentials.get). It has ZERO SDK dependencies and never
+ * touches the DOM.
  *
  * WHAT IT DOES:
  *   - Reads the key: a get that returns the credential id and the user

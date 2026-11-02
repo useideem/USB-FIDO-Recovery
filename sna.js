@@ -12,7 +12,7 @@
  * walkthrough (https://secure-sna-demo.idlayr.com). It makes no network
  * request. Each step resolves on a timer, and the result is shaped like the
  * real API's so the page can show the check ID and code the way it shows
- * the iShield and Passkeys+ challenges.
+ * the USB key and Passkeys+ challenges.
  *
  * THE STEPS, as the real flow runs them:
  *   1. Backend creates a check          POST /secure-sna-checks        -> 201 { check_id, url }
@@ -28,8 +28,8 @@
  * replace the inside of verifyNumber() and keep its contract.
  *
  * Like ishield.js, this module never touches the DOM. The "number verified"
- * marker is a localStorage flag per User ID on this device, the same shape
- * as the iShield enrollment marker, and Reset Device wipes it with the rest.
+ * marker is a localStorage flag per User ID on this device, keyed the way
+ * the USB key records are, and Reset Device wipes it with the rest.
  *
  * HOW TO USE:
  *   import { verifyNumber, isNumberVerified, setNumberVerified } from './sna.js';

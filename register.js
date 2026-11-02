@@ -22,9 +22,9 @@
  * drives the key's PIN: entering it, or setting one on a key that has none.
  * Safari on a Mac is the measured browser for the create; desktop Chrome
  * insists on a PIN for a discoverable credential anyway, which is now what
- * is asked for, but its PIN setup on the iShield failed in the September
- * tests (docs/ishield-pinless-discoverable.md). Measure before relying on
- * it. The footer names the browser rendering the page.
+ * is asked for, but its PIN setup failed in the September tests with a PIN
+ * the key's rules refuse (docs/ishield-pinless-discoverable.md). Measure
+ * before relying on it. The footer names the browser rendering the page.
  */
 
 import { enrollKey, shareEnrollment, detectBrowser, ERROR_HINTS } from './key-enroll.js';

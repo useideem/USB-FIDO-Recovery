@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Enroll a FIDO Key | Swissbit + Ideem</title>
+  <title>Enroll a FIDO Key | Ideem</title>
   <link rel="stylesheet" href="./style.css">
 </head>
 <body>
@@ -11,8 +11,6 @@
   <!-- Header -->
   <header class="header">
     <div class="logo-row">
-      <img src="./swissbit_logo.png" alt="Swissbit" class="logo logo-swissbit">
-      <span class="logo-divider"></span>
       <img src="./ideem-logo.png" alt="Ideem" class="logo logo-ideem">
     </div>
     <p class="subtitle">Enroll a FIDO USB key</p>
@@ -32,7 +30,7 @@
           <label class="ft-label" for="phone">Phone number</label>
           <input type="tel" id="phone" class="ft-input" placeholder="9135551234" autocomplete="tel" inputmode="numeric" spellcheck="false" required>
         </div>
-        <p class="ft-hint">Insert the FIDO key, then press Enroll Key. The browser asks for the key's PIN, or has you set one if the key has none (the iShield refuses a run like 1234 and a character repeated four times), then asks for a touch. The number is stored on the key as digits only; it is the User ID on the main page.</p>
+        <p class="ft-hint">Insert the FIDO key, then press Enroll Key. The browser asks for the key's PIN, or has you set one if the key has none (the key refuses a run like 1234 and a character repeated four times), then asks for a touch. The number is stored on the key as digits only; it is the User ID on the main page.</p>
         <button id="enroll-btn" type="submit" class="btn btn-primary">Enroll Key</button>
       </form>
       <!-- Anything that would break retrieval stays in the open -->
