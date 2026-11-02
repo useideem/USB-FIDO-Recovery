@@ -174,7 +174,7 @@ function encodeFailureMessage(error) {
     return 'This key is already encoded for this number on this phone. A key reported lost or replaced stays refused; insert the blank replacement key.';
   }
   if (name === 'NotAllowedError') {
-    return 'Cancelled, timed out, or the PIN was not created or entered. Insert the key and try again.';
+    return 'Cancelled, timed out, or the PIN was not created or entered. If the key refused the PIN, choose one that is not a run like 1234 and does not repeat a character four times. Insert the key and try again.';
   }
   return ERROR_HINTS[name] || error?.message || 'Encoding the key failed';
 }
@@ -213,7 +213,7 @@ const PASSKEY_GUIDE = {
  */
 const ENCODE_KEY_GUIDE = {
   title: 'Insert the FIDO USB Key from your bank',
-  lead: 'The key arrives blank. Your phone will ask you to create a PIN for it, then to touch it. The key is then encoded with your verified number.',
+  lead: 'The key arrives blank. Your phone will ask you to create a PIN for it, then to touch it. Choose a PIN that is not a run like 1234 and does not repeat a character four times; the key refuses those. The key is then encoded with your verified number.',
   button: 'Encode the key'
 };
 
@@ -240,7 +240,7 @@ const ENCODE_NEW_GUIDE = {
 /** After the passkey in the recovery: the blank replacement is next. */
 const NEW_KEY_GUIDE = {
   title: 'Insert the new FIDO USB Key',
-  lead: 'It arrives blank. Your phone will ask you to create a PIN for it, then to touch it. The key you reported lost stays refused.',
+  lead: 'It arrives blank. Your phone will ask you to create a PIN for it, then to touch it. Choose a PIN that is not a run like 1234 and does not repeat a character four times. The key you reported lost stays refused.',
   button: 'Encode the key'
 };
 
@@ -907,7 +907,7 @@ async function reportLost() {
  * flashing why it stopped.
  */
 async function encodeKey(user, purpose) {
-  showFlash('flash-status', 'Create a PIN for the key when your phone asks, then touch the key...', 'success', 120000);
+  showFlash('flash-status', 'Create a PIN for the key when your phone asks (not a run like 1234, no character four times), then touch the key...', 'success', 120000);
   let enrollment;
   try {
     enrollment = await enrollKey({
@@ -952,16 +952,27 @@ async function encodeKey(user, purpose) {
  * one is active is not swapped (Encode new FIDO key changes keys). With no
  * active key, the key read becomes the associated one, which is how a second
  * phone adopts a key it did not encode.
+ *
+ * The get names every key this phone has recorded in allowCredentials, so
+ * the browser opens its security-key sheet rather than the passkey chooser
+ * that puts the device biometric first; with no records it is the open get.
  */
 async function verifyUsbKey() {
   const user = STATE.loginID;
   if (!user) return;
   showFlash('flash-status', 'Enter the PIN and touch your USB key...', 'success', 60000);
-  const result = await webauthnAuthenticate(user);
-  if (!result.success) {
-    showFlash('flash-status', keyFailureMessage(result.error), 'failure', 8000);
+  // Lost and replaced keys are listed too, so a lost key still signs and the
+  // refusal below is the app's, with its date.
+  const known = loadKeys(user);
+  const got = await webauthnAuthenticate(user, { allowIds: known.map(k => k.id) });
+  if (!got.success) {
+    showFlash('flash-status', keyFailureMessage(got.error), 'failure', 8000);
     return;
   }
+  // The handle the key returned; failing that, the one recorded for this
+  // credential, since an allow-listed get may come back without one.
+  const recorded = known.find(k => k.id === got.credentialId)?.userHandle ?? null;
+  const result = { ...got, authenticatedUser: got.authenticatedUser ?? recorded };
   if (!sameUser(user, result.authenticatedUser)) {
     showFlash('flash-status', keyMismatchMessage(user, result.authenticatedUser), 'failure', 8000);
     return;

@@ -146,11 +146,16 @@ changed in commit `6cb97600`, 2026-08-11):
   uses batches of one. Measured end to end with 64 IDs (63 random decoys, real
   one last): **2.9 s, one touch**, phone number returned, `UV = false`.
 
-- **Chrome couldn't set a PIN on this key.** Its "Set up a new PIN" step failed
-  with CTAP `0x37` (`kCtap2ErrPinPolicyViolation`) for the PINs we entered
-  (including `1234`). The same key accepted a PIN via python-fido2
-  (`ClientPin(..., PinProtocolV2()).set_pin(...)`). This looks like a
-  Chrome/iShield compatibility quirk. It doesn't matter for the PIN-less plan.
+- **Chrome couldn't set a PIN on this key, and it was the PIN, not Chrome.**
+  Its "Set up a new PIN" step failed with CTAP `0x37`
+  (`kCtap2ErrPinPolicyViolation`) for the PINs we entered (including `1234`).
+  The same key accepted a PIN via python-fido2
+  (`ClientPin(..., PinProtocolV2()).set_pin(...)`). Read at the time as a
+  Chrome/iShield compatibility quirk; section 8 (2026-11-01) has the
+  explanation: `0x37` is the key enforcing Swissbit's PIN rules, which refuse
+  a run such as `1234`, while `minPINLength` 4 is all the browser checks.
+  Chrome's PIN setup has not been retried with a PIN the key accepts. It
+  didn't matter for the PIN-less plan.
 
 - **`credProtect` enforcement is rejected.**
   `credentialProtectionPolicy: "userVerificationOptional"` together with
@@ -244,6 +249,11 @@ requires verification (section 7). The rest still hold.
    - Choose by platform up front. Don't try the empty list first in Chrome:
      users would see the "can't be used with this site" dialog before the
      fallback.
+   - *2026-11-01:* the recovery demo's main page now sends the ids it has
+     recorded on every platform, each with `transports: ["usb", "nfc"]`,
+     because Safari's empty-list get opened the passkey chooser with Touch ID
+     first; the empty list is kept only for a phone with no records
+     (section 8).
 6. **Read the phone number from `response.userHandle`.** It's returned on every
    successful Get, including touch-only ones. Names (`user.name`) aren't
    available without UV.
@@ -268,11 +278,12 @@ single Get can't cover a larger event. Options, none tested yet:
 
 ### Relation to the current code
 
-`key-enroll.js` holds the create (the registration page runs it), and
-`webauthnIdentify` in `ishield.js` holds the empty-list get (the main page
-runs it at setup and when a replacement key is associated). The get also
-returns the credential id that answered, which is how `key-records.js` tells
-a replacement key from the one that was reported lost.
+`key-enroll.js` holds the create (the main page runs it at setup and in
+recovery, the registration page as a bench tool), and `webauthnIdentify` in
+`ishield.js` holds the get (the main page runs it from Verify USB key, with
+the ids it has recorded in the allow list, or the empty list when it has
+none). The get also returns the credential id that answered, which is how
+`key-records.js` tells a replacement key from the one that was reported lost.
 
 ### Handing the user off to the main page
 
@@ -395,7 +406,8 @@ fido2-token -I <device>               # capabilities (getInfo), PIN state
 The recovery demo's customer asked for a four-digit PIN on the key. WebAuthn
 gives a page one lever for that: `userVerification: "required"`. The browser
 then makes the user set a PIN on a key that has none (the key's `minPINLength`
-is 4, section 3) and asks for it on every get afterwards, on every device. A
+is 4, section 3, and its own PIN rules apply on top, section 8) and asks for
+it on every get afterwards, on every device. A
 page cannot set, read or size the PIN; "four digits" is what the user types
 when the browser asks.
 
@@ -420,13 +432,16 @@ What the September measurements already say about a PIN'd key:
   can now read a key, which it could not in the PIN-less world.
 - Desktop Chrome's own PIN setup on the iShield failed with CTAP `0x37`
   (`PinPolicyViolation`) for every PIN tried, `1234` included, while
-  python-fido2 set a PIN on the same key without trouble.
+  python-fido2 set a PIN on the same key without trouble. Explained on
+  2026-11-01: the key's PIN rules refuse a run such as `1234` (section 8).
 
 What has not been measured:
 
-- **PIN setup through a browser.** Safari's "set a PIN" flow was never run,
-  and Chrome's failed. If neither browser can set the PIN, set it once with
-  the CLI and let the create merely require it:
+- **PIN setup through a browser.** Measured in Safari on a Mac on 2026-11-01
+  (section 8): it works once the PIN meets the key's rules. Chrome's failed
+  in September on those same rules and has not been retried. If a phone
+  browser cannot set the PIN, set it once with the CLI and let the create
+  merely require it:
 
   ```sh
   fido2-token -S <device>        # prompts for the new PIN, then confirms it
@@ -475,3 +490,60 @@ Every key this phone has recorded (active, lost or replaced) is passed as
 refused by the key itself (`InvalidStateError`), not only by the app. For
 demo resets, `fido2-token -R <device>` returns a key to blank, no
 credentials and no PIN, so the next run goes through PIN creation again.
+
+### 2026-11-01: the first run on hardware
+
+The owner ran the main page's setup in Safari on a Mac (macOS 26.5.2) with
+the iShield Key 2 Pro MIFARE inserted. Two findings.
+
+**The key's PIN rules, not the browser, refuse a PIN.** Safari's "Set Up
+Security Key" sheet, the PIN-creation step, answered "Unrecognized PIN code.
+Please try again." The key's state at that moment, read over SSH with
+`fido2-token -I` (libfido2 on the MacBook):
+
+```
+options: rk, noalwaysUv, credMgmt, authnrCfg, noclientPin, pinUvAuthToken, setMinPINLength, makeCredUvNotRqd
+minpinlen: 4
+pin protocols: 1, 2
+pin retries: undefined
+pin change required: false
+remaining rk(s): 300
+```
+
+`noclientPin` means no PIN was set, so the only PIN command Safari could
+have sent was setPIN, and the only refusal the key documents for that is its
+policy. Swissbit's iShield Key 2 FAQ (v1.0, 2025-01-17) gives it: section
+3.2.1, FIDO2, "PIN length: min. 4 characters (min. 6 characters for FIPS
+model)"; section 3.2.5, PIN Rules, for every applet "unless otherwise
+specified": at least 6 characters, a new PIN different from the current one,
+no 4 identical characters (`2222as` refused, `222asd` allowed), no
+sequences (`123456`, `abcdef`). The user manual (rev 1.1, 2025-05-02, page
+12) repeats the rules and says the FIDO PIN set through Windows is "between
+four and eight characters". The browser checks only `minPINLength`, 4, and
+passes the PIN on; the key answers `0x37`, CTAP `PIN_POLICY_VIOLATION`,
+which is the code desktop Chrome logged in September for `1234`. Apple's
+sheet renders that as "Unrecognized PIN code". The owner retried with a PIN
+that met the rules and the create completed: the key was encoded from the
+main page, with the PIN created in Safari's sheet. A refused attempt costs
+nothing: with no PIN set there is no retry counter. The guides and the
+encode flash in `app.js` now state the two rules the sheet cannot.
+
+**The empty-list get opens Safari's passkey chooser.** Verify USB key put
+the device biometric first, since an empty `allowCredentials` is the
+"who are you" query and Safari offers every passkey it has for the site,
+the Ideem passkey included, with security keys behind it. `hints:
+["security-key"]` did nothing: WebKit's Safari 18.4 notes list PIN setup for
+security keys, not hints, and Chrome 128+ is where hints are honoured. The
+lever that works everywhere is the allow list: `webauthnIdentify` now takes
+`allowIds`, the ids this phone has recorded (`allowListFor`: each on
+`transports: ["usb", "nfc"]`, deduplicated, capped at 64), and a get whose
+allowed credentials all live on a security key goes straight to the
+security-key sheet. Lost and replaced keys are listed too, so a lost key
+still signs and the app's refusal, with its date, is what the user sees.
+With no records the list is empty and the open get stays, for a phone
+adopting a key it did not encode. What to measure next, on the Mac and
+then on the phones: that the allow-listed get opens the security-key sheet,
+and that the user handle still comes back (CTAP 2.1 makes at least the user
+id mandatory in a discoverable credential's assertion; if a browser drops it
+with an allow list, `verifyUsbKey` falls back to the handle recorded for the
+matched credential).

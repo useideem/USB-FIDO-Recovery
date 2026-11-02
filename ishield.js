@@ -6,20 +6,24 @@
  * ZERO SDK dependencies and never touches the DOM.
  *
  * WHAT IT DOES:
- *   - Asks whichever key is present who it is: an open get that returns the
- *     credential id and the user handle (the phone number register.html
- *     wrote there), after the key's PIN and a touch
+ *   - Reads the key: a get that returns the credential id and the user
+ *     handle (the phone number the create wrote there), after the key's PIN
+ *     and a touch. The page passes the ids of the keys it has recorded
+ *     (allowIds), which sends the browser straight to its security-key
+ *     sheet; with none it is an open get
  *   - Provides base64url and SHA-256 encoding utilities used by umfa.js,
  *     key-enroll.js and webauthn-util.js
  *
- * The create that writes a key lives in key-enroll.js and runs only on the
- * registration page. The records of which keys a browser has associated,
- * reported lost or replaced live in key-records.js.
+ * The create that writes a key lives in key-enroll.js (the main page runs it
+ * at setup and in recovery, the registration page as a bench tool). The
+ * records of which keys a browser has encoded or read, reported lost or
+ * replaced live in key-records.js.
  *
  * HOW TO USE:
  *   import { webauthnAuthenticate } from './ishield.js';
  *
- *   const result = await webauthnAuthenticate('9135551235');
+ *   // allowIds: the credential ids this phone has recorded (key-records.js)
+ *   const result = await webauthnAuthenticate('9135551235', { allowIds: ['K7f...'] });
  *   if (result.success) {
  *     // result.credentialId     -- the credential the key answered with (base64url)
  *     // result.authenticatedUser -- the user handle as text, or null
@@ -38,10 +42,18 @@
  *     rule, 2026-10-21), so every get asks for it. A key with a PIN is asked
  *     for it by every browser whatever the page says, so asking for it
  *     outright is only honest; the UV flag in the result confirms it.
- *   - The allowCredentials list is empty, so the key answers with the
- *     discoverable credential it holds and the identity comes back in the
- *     user handle. That is what lets a freshly set-up phone, which knows
- *     nothing about the key, read it.
+ *   - allowCredentials names the keys this phone has recorded, each on
+ *     transports ['usb', 'nfc'] (allowListFor). A get whose allowed
+ *     credentials all live on a security key goes straight to the browser's
+ *     security-key sheet; the platform passkey is never offered, since its
+ *     id is not in the list. That is the lever that works in Safari, iOS,
+ *     Chrome and Firefox alike. hints: ['security-key'] is sent too, but it
+ *     is advisory: Chrome 128+ honours it, Safari ignores it (2026-11-01,
+ *     when Safari's empty-list get put Touch ID first).
+ *   - With no ids the list is empty: the open get, where the key answers
+ *     with the discoverable credential it holds and the identity comes back
+ *     in the user handle. That is what lets a phone that knows nothing about
+ *     the key read it (a second phone adopting a key).
  */
 
 // ---------------------------------------------------------------------------
@@ -69,7 +81,8 @@ export function bufferToBase64url(buffer) {
  * Converts a base64url-encoded string back to an ArrayBuffer.
  *
  * Used to decode stored credential IDs before passing them to
- * navigator.credentials.create() as excludeCredentials entries.
+ * navigator.credentials.create() as excludeCredentials entries and to
+ * navigator.credentials.get() as allowCredentials entries.
  *
  * @param {string} base64url - The base64url-encoded string to decode.
  * @returns {ArrayBuffer} The decoded raw bytes.
@@ -81,6 +94,33 @@ export function base64urlToBuffer(base64url) {
   const bytes = new Uint8Array(binary.length);
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return bytes.buffer;
+}
+
+/** The transports a FIDO USB key answers on. Every id the page records belongs to one. */
+export const KEY_TRANSPORTS = ['usb', 'nfc'];
+
+/** Chrome throws a RangeError on a longer allowCredentials list. */
+export const MAX_ALLOW_IDS = 64;
+
+/**
+ * The allowCredentials entries for the keys a phone has recorded: each id
+ * decoded and marked as living on a USB or NFC key, which is what sends the
+ * browser to its security-key sheet rather than the passkey chooser. Blank
+ * ids and duplicates are dropped and the list is capped at Chrome's 64,
+ * keeping the first ids given (the records are newest first). With no ids
+ * the result is empty, which is the open get.
+ *
+ * @param {string[]} [ids] - Credential ids, base64url.
+ * @param {string[]} [transports] - Where the credentials live; the keys' by default.
+ * @returns {Array<{type: 'public-key', id: ArrayBuffer, transports: string[]}>}
+ */
+export function allowListFor(ids = [], transports = KEY_TRANSPORTS) {
+  const unique = [...new Set((ids ?? []).filter(id => typeof id === 'string' && id))];
+  return unique.slice(0, MAX_ALLOW_IDS).map(id => ({
+    type: 'public-key',
+    id: base64urlToBuffer(id),
+    transports: [...transports]
+  }));
 }
 
 /**
@@ -141,15 +181,17 @@ function assertionFlags(authenticatorData) {
  *   `user` is empty.
  *
  * @param {string} user - The expected username. Compared with userHandle.
+ * @param {{allowIds?: string[]}} [options] - allowIds: the credential ids this
+ *   phone has recorded for the user (key-records.js); see webauthnIdentify.
  * @returns {Promise<object>} See webauthnIdentify.
  */
-export async function webauthnAuthenticate(user) {
+export async function webauthnAuthenticate(user, { allowIds = [] } = {}) {
   if (!user) {
     return { success: false, error: new Error('No user specified.') };
   }
 
   console.log('[FIDO2 Auth] Starting authentication for user:', user);
-  const result = await webauthnIdentify();
+  const result = await webauthnIdentify({ allowIds });
 
   // Log mismatch but don't fail — caller decides what to do
   if (result.success && result.authenticatedUser && result.authenticatedUser !== user) {
@@ -159,14 +201,17 @@ export async function webauthnAuthenticate(user) {
 }
 
 /**
- * Asks whichever FIDO key is present who it is: a raw WebAuthn get with
- * no expected user.
+ * Reads the FIDO key: a raw WebAuthn get with no expected user.
  *
- * Uses discoverable (resident) credentials -- the key presents its own
- * stored credential without needing an allowCredentials list. This means
- * the get works on ANY device, not just the one where the key was written,
+ * The credentials are discoverable (resident), so the key can present its
+ * own stored credential without an allowCredentials list, on ANY device,
  * and the identity comes back in the credential's userHandle (the phone
- * number register.html wrote there). The credential id that answered is
+ * number the create wrote there). The page still passes the ids it has
+ * recorded (`allowIds`): an allow list whose credentials all live on a
+ * security key sends the browser straight to its security-key sheet instead
+ * of the passkey chooser, where Touch ID or a platform passkey comes first.
+ * With no ids the list is empty, and the chooser is the price of adopting a
+ * key this phone has never seen. The credential id that answered is
  * returned too: it is how the page tells a replacement key from the one
  * that was reported lost.
  *
@@ -194,22 +239,27 @@ export async function webauthnAuthenticate(user) {
  *     - a platform authenticator (Touch ID) answered instead of the key
  *     - Other error names: unexpected failure
  *
- * @param {{userVerification?: string}} [options]
+ * @param {{userVerification?: string, allowIds?: string[]}} [options] -
+ *   allowIds: the credential ids this phone has recorded, base64url; none
+ *   for the open get.
  * @returns {Promise<object>}
  */
-export async function webauthnIdentify({ userVerification = 'required' } = {}) {
+export async function webauthnIdentify({ userVerification = 'required', allowIds = [] } = {}) {
   const challenge = crypto.getRandomValues(new Uint8Array(32));
+  const allowCredentials = allowListFor(allowIds);
 
-  // Always an open query: an empty allowCredentials list, so the key answers
-  // with whatever discoverable credential it holds and we learn who it is from
-  // the userHandle. hints routes Android Chrome 128+ straight to the
-  // security-key sheet instead of its passkey picker.
+  // The keys this phone knows, on usb/nfc transports, send every browser
+  // straight to its security-key sheet. An empty list is the open query: the
+  // key answers with whatever discoverable credential it holds and we learn
+  // who it is from the userHandle. hints is advisory on top of that: Chrome
+  // 128+ skips its passkey picker for it; Safari ignores it.
   try {
+    console.log('[FIDO2 Auth] Get with', allowCredentials.length, 'allowed credential(s)');
     const assertion = await navigator.credentials.get({
       publicKey: {
         challenge,
         rpId: location.hostname,
-        allowCredentials: [],
+        allowCredentials,
         userVerification,
         hints: ['security-key'],
         timeout: 60000

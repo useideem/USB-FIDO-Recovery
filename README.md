@@ -59,8 +59,10 @@ HOME
   The challenge each factor's last ceremony produced, with the signed
     challenge where there is one and the public key for the create.
   Authenticate -- a fresh passkey step-up.
-  Verify USB key -- webauthnAuthenticate(user): PIN and touch; the key's user
-    handle must match the User ID; a lost or replaced key is refused.
+  Verify USB key -- webauthnAuthenticate(user, { allowIds }): the recorded ids
+    in allowCredentials, so the browser opens its security-key sheet; PIN and
+    touch; the key's user handle must match the User ID; a lost or replaced
+    key is refused.
   I lost this key -- a dialog; the key is marked lost and refused.
   Encode new FIDO key -- authenticate(user, 'required'), then enrollKey on the
     blank replacement with every known id excluded: the same number under a
@@ -381,14 +383,18 @@ extensions: { credProps: true }
 
 `user.id` is the phone number as UTF-8, so a get on any phone reads it straight back out of the user handle. A production RP would use random opaque bytes mapped to the number on the server.
 
-Because verification is required, the browser makes the user create a PIN on a key that has none, which is the step the demo's story wants on the phone with the blank key from the bank, and asks for it on every touch after that, on every device. A page can require verification; it cannot set, read or size the PIN. The key enforces the PIN rules; the iShield's minimum is four digits.
+Because verification is required, the browser makes the user create a PIN on a key that has none, which is the step the demo's story wants on the phone with the blank key from the bank, and asks for it on every touch after that, on every device. A page can require verification; it cannot set, read or size the PIN. The key enforces the PIN rules. The iShield advertises a four-character minimum and refuses a run such as 1234 and a character repeated four times, which Safari's sheet reports as "Unrecognized PIN code"; the guides say so before the sheet opens.
 
 ### Reading a key
 
 ```javascript
 import { webauthnAuthenticate } from './ishield.js';
+import { loadKeys } from './key-records.js';
 
-const result = await webauthnAuthenticate('9135551235');
+// The ids this phone has recorded go into allowCredentials, which sends the
+// browser straight to its security-key sheet. With none, the get is open.
+const allowIds = loadKeys('9135551235').map(k => k.id);
+const result = await webauthnAuthenticate('9135551235', { allowIds });
 if (result.success) {
   // result.credentialId      -- which credential answered
   // result.authenticatedUser -- the user handle as text (the phone number)
@@ -402,7 +408,7 @@ if (result.success) {
 }
 ```
 
-The get sends an **empty `allowCredentials` list**, so the key answers with whatever discoverable credential it holds for this site and the app learns who it is from the user handle. That is what lets a phone that has never seen the key read it. The app then checks that the handle names the signed-in User ID.
+The get puts the **keys this phone has recorded in `allowCredentials`**, each on `transports: ['usb', 'nfc']` (`allowListFor`). A get whose allowed credentials all live on a security key goes straight to the browser's security-key sheet. An empty list is the discoverable "who are you" query, and on Safari that opens the passkey chooser with Touch ID and the platform passkey first (seen 2026-11-01). `hints: ['security-key']` is sent as well, but it is advisory: Chrome 128+ honours it, Safari ignores it. With no records the list is empty and the key answers with whatever discoverable credential it holds for this site, which is what lets a phone that has never seen the key read it. The app then checks that the handle names the signed-in User ID, falling back to the handle recorded for the credential when an allow-listed get returns none.
 
 ### Recording keys
 
@@ -531,17 +537,23 @@ Validates an authentication or enrollment token with the Ideem server. Called au
 
 ### ishield.js Exports
 
-#### `webauthnAuthenticate(user)`
+#### `webauthnAuthenticate(user, { allowIds = [] })`
 
-The open get below, with an expected user: a user handle that does not match is logged, not failed, and the caller decides. An empty `user` is a failure.
+The get below, with an expected user: a user handle that does not match is logged, not failed, and the caller decides. An empty `user` is a failure. `allowIds` passes through.
 
 **Returns:** `Promise<object>` -- see `webauthnIdentify`.
 
 ---
 
-#### `webauthnIdentify({ userVerification = 'required' })`
+#### `allowListFor(ids = [], transports = KEY_TRANSPORTS)`
 
-Asks whichever key is present who it is: `navigator.credentials.get()` with an empty `allowCredentials` list, `hints: ['security-key']`, and user verification required.
+The `allowCredentials` entries for recorded keys: each base64url id decoded, as `{ type: 'public-key', id, transports }` with `transports: ['usb', 'nfc']` by default (`KEY_TRANSPORTS`). Blank ids and duplicates are dropped and the list is capped at `MAX_ALLOW_IDS` (64, Chrome's limit), keeping the first ids given. No ids gives an empty list, the open get. Pure, so the Node harness covers it.
+
+---
+
+#### `webauthnIdentify({ userVerification = 'required', allowIds = [] })`
+
+Reads the key: `navigator.credentials.get()` with `allowCredentials` from `allowListFor(allowIds)`, `hints: ['security-key']`, and user verification required. With ids the browser opens its security-key sheet; with none it is the open "who are you" query and the chooser may offer a platform passkey first.
 
 **Success:**
 ```javascript
